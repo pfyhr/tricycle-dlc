@@ -1,0 +1,39 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OpenModelica (official apt repo)
+        run: |
+          sudo curl -fsSL http://build.openmodelica.org/apt/openmodelica.asc \
+            | sudo gpg --dearmor -o /usr/share/keyrings/openmodelica-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/openmodelica-keyring.gpg] \
+            https://build.openmodelica.org/apt $(lsb_release -cs) stable" \
+            | sudo tee /etc/apt/sources.list.d/openmodelica.list
+          sudo apt-get update -q
+          sudo apt-get install -qy omc
+          omc --version
+
+      - name: Install Modelica Standard Library
+        run: |
+          cat > /tmp/install_msl.mos <<'EOF'
+          updatePackageIndex(); getErrorString();
+          installPackage(Modelica, "4.0.0", exactMatch=false); getErrorString();
+          EOF
+          omc /tmp/install_msl.mos
+
+      - name: Install Python dependencies
+        run: pip install numpy
+
+      - name: Run test suite
+        run: python3 tests/run_tests.py

@@ -1,0 +1,23 @@
+# tricycle-dlc — cited sources
+
+Provenance for every non-obvious parameter and the reference anchors used to ground the
+double-lane-change results.
+
+| # | Source | Backs |
+|---|--------|-------|
+| 1 | Pacejka, *Tire and Vehicle Dynamics*, 3rd ed., Ch. 3 (§3.2, eqs. 3.9–3.12) & Ch. 7 | single-friction **brush** tire: Fy = μFz(1−(1−u)³), Mz = −μFz·a_p·u(1−u)³ with u = θ\|tanα\| clamped at 1; pneumatic trail a_p/3 at zero slip collapsing to 0 at full sliding; degressive load law Cα = c1·sin(2·atan(Fz/c2)); relaxation length σ ≈ 0.3–0.6 m; normalized cornering stiffness 15–20 rad⁻¹; *effective axle characteristics* (Ch. 1) for future compliance calibration |
+| 2 | Heydinger, Bixel, Garrott, Pyne & Howe, "Measured Vehicle Inertial Parameters — NHTSA's Data Through November 1998", SAE 1999-01-1336 | D-segment defaults: m = 1650 kg, Izz = 2700 kg·m², h_cg = 0.55 m |
+| 3 | `iso_3888_1_1999_dlc_track_sample.pdf` — ISO 3888-1:1999 (iTeh preview, incl. Table 1 + Annex A) | DLC course geometry: sections 15/30/25/25/15/15 m (total **125 m**), 3.5 m lane offset; lane widths 1.1W+0.25 / 1.2W+0.25 / 1.3W+0.25; **recommended entry speed (80 ± 3) km/h** (Annex A, Test 1); pass = no cones displaced |
+| 4 | `matec_2022_dlc_field_test_validation.pdf` — Bîndac et al., MATEC Web Conf. 373:00054 (2022), [doi:10.1051/matecconf/202237300054](https://doi.org/10.1051/matecconf/202237300054) | measured DLC field test + TruckSim validation (4×4 FED-Alpha): ay peaks ≈ ±0.5 g and yaw ≈ ±20–25 deg/s at 70 km/h near its 75 km/h pass limit; SWA peaks ±60–80°; **driver preview time 0.6 s** — "a compromise between following a path closely and remaining stable" |
+| 5 | Milliken & Milliken, *Race Car Vehicle Dynamics*, Ch. 18 | quasi-static lateral load transfer ΔFz = ξ_F·m·a_y·h/t_f split by roll-stiffness fraction; roll-mode time constant ~0.15 s |
+| 6 | MacAdam, "Application of an Optimal Preview Control for Simulation of Closed-Loop Automobile Driving", IEEE Trans. SMC 1981 | single-point preview driver (position preview + yaw-rate damping term) |
+| 7 | Reimpell, Stoll & Betzler, *The Automotive Chassis* | mechanical (caster) trail 20–40 mm → t_mech = 25 mm; manual (unassisted) steering ratios ~20:1 (assisted 14–17) |
+| 8 | WO 2025/113783 A1 (Marzbanrad & Jonasson, Volvo Truck Corp.) | precedent for the planar **three-wheel (tricycle)** vehicle model: individual front wheels + lumped rear, used for front-axle force/motion estimation |
+| 9 | Yin et al., *Sci. Reports* 14:28536 (2024) | road-wheel inertia about the kingpin ≈ 0.79 kg·m² per wheel; CarSim DLC simulations at 40–100 km/h |
+
+*Notes:* rear lumped tire uses doubled per-wheel capacity (c1, FzNom ×2 — neutral
+lumping, exactly consistent with two wheels in the linear range); documented omissions
+are listed in the `Tricycle.PlanarTricycle` documentation annotation and the README.
+A deferred calibration: raising rear c1 to 1.7e5 would move the tires-only understeer
+gradient from 0.96 to ≈1.5 deg/g, defensible as a Pacejka *effective axle
+characteristic* absorbing the omitted compliance/roll-steer understeer.

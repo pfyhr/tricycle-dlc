@@ -1,0 +1,571 @@
+within ;
+package Tricycle
+  "Planar three-wheel (tricycle) vehicle with manual rack-and-pinion steering, for suspension-link force studies (ISO 3888-1 double lane change)"
+  extends Modelica.Icons.Package;
+
+
+  record TireData
+    "Brush-model tire parameters (Pacejka, Tire and Vehicle Dynamics, Ch. 3)"
+    extends Modelica.Icons.Record;
+    Real c1(unit="N/rad") = 7.0e4
+      "Cornering-stiffness scale: Calpha = c1*sin(2*atan(Fz/c2))";
+    Modelica.Units.SI.Force c2 = 4000 "Load at which Calpha peaks";
+    Real mu = 0.95 "Tire-road friction coefficient (dry asphalt)";
+    Modelica.Units.SI.Length ap0 = 0.06
+      "Contact-patch half length at FzNom (pneumatic trail at zero slip = ap0/3)";
+    Modelica.Units.SI.Force FzNom = 4000 "Nominal load for patch-length scaling";
+    Modelica.Units.SI.Length sigmaRel = 0.5
+      "Relaxation length (first-order transient force lag)";
+    annotation (Documentation(info="<html><p>Parameters of the single-friction
+<b>brush</b> tire (Pacejka, <i>Tire and Vehicle Dynamics</i>, 3rd ed., Ch. 3). The
+cornering stiffness uses the standard degressive load law
+C<sub>&alpha;</sub> = c1&middot;sin(2&middot;atan(Fz/c2)); the contact patch half length
+grows as &radic;Fz so the low-slip pneumatic trail is ap0/3 (&asymp;20 mm) at nominal
+load. Defaults are 205/55R16-class passenger-car values.</p></html>"));
+  end TireData;
+
+  function brushForces
+    "Steady-state brush tire: lateral force and aligning moment vs slip angle and load"
+    extends Modelica.Icons.Function;
+    input Modelica.Units.SI.Angle alpha "Slip angle";
+    input Modelica.Units.SI.Force Fz "Vertical load";
+    input TireData d "Tire parameters";
+    output Modelica.Units.SI.Force Fy
+      "Lateral force (sign of alpha: alpha>0 -> Fy>0, leftward)";
+    output Modelica.Units.SI.Torque Mz
+      "Aligning moment (opposes alpha: alpha>0 -> Mz<0)";
+  protected
+    constant Real epsS = 1e-6 "Slip regularization [rad]";
+    constant Real epsC = 1e-4 "Smooth-clamp regularization";
+    Real Fzc, Ca, ap, sy, sAbs, sgn, theta, uu, lam;
+  algorithm
+    Fzc   := max(Fz, 50);  // lift-off guard
+    Ca    := d.c1*sin(2*atan(Fzc/d.c2));
+    ap    := d.ap0*sqrt(Fzc/d.FzNom);
+    sy    := tan(alpha);
+    sAbs  := sqrt(sy^2 + epsS^2);
+    sgn   := sy/sAbs;
+    theta := Ca/(3*d.mu*Fzc);
+    // smooth min(theta*|tan(alpha)|, 1): full sliding at tan(alpha) = 3*mu*Fz/Calpha
+    uu    := 0.5*(theta*sAbs + 1 - sqrt((theta*sAbs - 1)^2 + epsC));
+    lam   := 1 - uu;
+    Fy    := d.mu*Fzc*(1 - lam^3)*sgn;
+    Mz    := -d.mu*Fzc*ap*uu*lam^3*sgn;
+    annotation (smoothOrder=2, Documentation(info="<html><p>Pacejka brush model,
+pure side slip (eqs. 3.9&ndash;3.12): with &theta; = C<sub>&alpha;</sub>/(3&mu;Fz) and
+u = min(&theta;|tan&alpha;|, 1),</p>
+<blockquote><code>|Fy| = &mu;Fz(1-(1-u)&sup3;), &nbsp;
+|Mz| = &mu;Fz&middot;a<sub>p</sub>&middot;u(1-u)&sup3;</code></blockquote>
+<p>so the pneumatic trail -Mz/Fy starts at a<sub>p</sub>/3 and collapses to zero at
+full sliding &mdash; the mechanism that shapes the tie-rod load mid-maneuver. The
+min and sign are smoothly regularized, so the function is C&sup2; and event-free.</p></html>"));
+  end brushForces;
+
+  function yRefIso3888
+    "ISO 3888-1 reference centerline: half-cosine lane-offset blends"
+    extends Modelica.Icons.Function;
+    input Modelica.Units.SI.Position x "Distance along the course";
+    input Modelica.Units.SI.Length offsetY = 3.5 "Lateral offset between lanes";
+    output Modelica.Units.SI.Position y "Reference lateral position";
+    output Real dydx "Reference path slope dy/dx";
+  protected
+    constant Real pi = Modelica.Constants.pi;
+    // ISO 3888-1:1999 Table 1: 15 m lane / 30 m transition / 25 m offset lane
+    // (3.5 m lane offset) / 25 m transition / 2 x 15 m exit lane, total 125 m
+    constant Modelica.Units.SI.Length x1 = 15, x2 = 45, x3 = 70, x4 = 95;
+  algorithm
+    if x <= x1 then
+      y := 0;
+      dydx := 0;
+    elseif x <= x2 then
+      y := offsetY/2*(1 - cos(pi*(x - x1)/(x2 - x1)));
+      dydx := offsetY/2*pi/(x2 - x1)*sin(pi*(x - x1)/(x2 - x1));
+    elseif x <= x3 then
+      y := offsetY;
+      dydx := 0;
+    elseif x <= x4 then
+      y := offsetY/2*(1 + cos(pi*(x - x3)/(x4 - x3)));
+      dydx := -offsetY/2*pi/(x4 - x3)*sin(pi*(x - x3)/(x4 - x3));
+    else
+      y := 0;
+      dydx := 0;
+    end if;
+    annotation (smoothOrder=1);
+  end yRefIso3888;
+
+  block Iso3888Path
+    "ISO 3888-1 path reference + single-point preview driver -> road-wheel steer command"
+    parameter Modelica.Units.SI.Velocity u = 80/3.6 "Forward speed";
+    parameter Modelica.Units.SI.Time Tp = 0.45 "Preview time (MacAdam-class single point)";
+    parameter Real Kdrv(unit="rad/m") = 0.3 "Road-wheel steer per meter of preview error";
+    parameter Real Kr(unit="rad.s/rad") = 0.08
+      "Yaw-rate damping (vestibular feedback term; zero steady-state offset on straights)";
+    parameter Modelica.Units.SI.Angle dMax = 0.35 "Smooth steer-command clamp (~20 deg)";
+    parameter Modelica.Units.SI.Length offsetY = 3.5 "Lane offset";
+    parameter Modelica.Units.SI.Position xStart = 0 "Vehicle X at course entry";
+    Modelica.Blocks.Interfaces.RealInput X "Vehicle global x [m]"
+      annotation (Placement(transformation(extent={{-120,50},{-100,70}})));
+    Modelica.Blocks.Interfaces.RealInput Y "Vehicle global y [m]"
+      annotation (Placement(transformation(extent={{-120,10},{-100,30}})));
+    Modelica.Blocks.Interfaces.RealInput psi "Vehicle heading [rad]"
+      annotation (Placement(transformation(extent={{-120,-30},{-100,-10}})));
+    Modelica.Blocks.Interfaces.RealInput vy "Vehicle lateral velocity [m/s]"
+      annotation (Placement(transformation(extent={{-120,-70},{-100,-50}})));
+    Modelica.Blocks.Interfaces.RealInput r "Vehicle yaw rate [rad/s]"
+      annotation (Placement(transformation(extent={{-120,-110},{-100,-90}})));
+    Modelica.Blocks.Interfaces.RealOutput dCmd "Road-wheel steer command [rad]"
+      annotation (Placement(transformation(extent={{100,-10},{120,10}})));
+    Modelica.Units.SI.Position yRef "Reference lateral position at the preview point";
+    Real dyRef "Reference path slope at the preview point (for logging)";
+    Modelica.Units.SI.Position yPrev "Predicted lateral position at the preview point";
+    Modelica.Units.SI.Position ePrev "Preview position error";
+  equation
+    (yRef, dyRef) = yRefIso3888(X - xStart + u*Tp, offsetY);
+    // consistent single-point preview: vehicle predicted Tp ahead, path read Tp ahead
+    yPrev = Y + Tp*(vy*cos(psi) + u*sin(psi));
+    ePrev = yRef - yPrev;
+    dCmd  = dMax*tanh((Kdrv*ePrev - Kr*r)/dMax);
+    annotation (
+      Icon(coordinateSystem(preserveAspectRatio=false), graphics={
+        Rectangle(extent={{-100,100},{100,-100}}, lineColor={0,0,0},
+          fillColor={245,245,235}, fillPattern=FillPattern.Solid),
+        Line(points={{-90,-40},{-40,-40},{-10,40},{40,40},{70,-40},{90,-40}},
+          color={0,0,255}, smooth=Smooth.Bezier, thickness=0.5),
+        Rectangle(extent={{-90,-24},{-60,-30}}, lineColor={128,128,128}),
+        Rectangle(extent={{-24,56},{24,50}}, lineColor={128,128,128}),
+        Rectangle(extent={{60,-24},{90,-30}}, lineColor={128,128,128}),
+        Text(extent={{-96,-60},{96,-90}}, textColor={0,0,0}, textString="ISO 3888-1"),
+        Text(extent={{-150,140},{150,110}}, textColor={0,0,255}, textString="%name")}),
+      Documentation(info="<html><p>Single-point preview driver (MacAdam-class):
+the lateral position the vehicle will have after the preview time <code>Tp</code> is
+compared with the ISO 3888-1 reference centerline evaluated at the previewed station,
+and the error is turned into a road-wheel steer command with gain <code>Kdrv</code>,
+smoothly clamped at <code>dMax</code>.</p></html>"));
+  end Iso3888Path;
+
+  model PlanarTricycle
+    "Planar 2-DOF (sideslip + yaw) three-wheel vehicle: individual front wheels, lumped rear; brush tires; kingpin trail -> tie-rod loads"
+    // Sign conventions (ISO 8855): x forward, y left, z up.
+    // delta > 0, yaw rate r > 0, ay > 0  =  LEFT turn; load transfers to the RIGHT (outer) wheel.
+    // Positive rack travel s steers LEFT: delta = s/Larm (parallel steer).
+    parameter Modelica.Units.SI.Mass m = 1650
+      "Vehicle mass (D-segment sedan, Heydinger et al. SAE 1999-01-1336)";
+    parameter Modelica.Units.SI.Inertia Izz = 2700 "Yaw moment of inertia";
+    parameter Modelica.Units.SI.Length a = 1.20 "CG to front axle";
+    parameter Modelica.Units.SI.Length b = 1.60 "CG to rear axle";
+    parameter Modelica.Units.SI.Length tf = 1.55 "Front track width";
+    parameter Modelica.Units.SI.Length hcg = 0.55 "CG height above ground";
+    parameter Real xiF(min=0, max=1) = 0.6
+      "Front share of the lateral load transfer (roll-stiffness fraction)";
+    parameter Modelica.Units.SI.Time tauRoll = 0.15
+      "Roll-mode lag applied to the load transfer";
+    parameter Modelica.Units.SI.Velocity u = 80/3.6 "Constant forward speed";
+    parameter Modelica.Units.SI.Velocity uMin = 1
+      "Low-speed guard for slip-angle denominators";
+    parameter Modelica.Units.SI.Length tMech = 0.025
+      "Mechanical (caster) trail: 5-6 deg caster x ~0.29 m rolling radius";
+    parameter Modelica.Units.SI.Length Larm = 0.11
+      "Steering-arm length: rack travel per steer radian";
+    parameter Modelica.Units.SI.Inertia Jkp = 0.79
+      "Road-wheel inertia about the kingpin, per wheel (Yin et al. 2024)";
+    parameter TireData tireF "Front tire, per wheel";
+    parameter TireData tireR(c1=1.4e5, c2=8000, FzNom=8000, ap0=0.085)
+      "Lumped rear-axle tire (2x per-wheel capacity)";
+
+    Modelica.Mechanics.Translational.Interfaces.Flange_a rack
+      "Steering-rack / tie-rod connection"
+      annotation (Placement(transformation(extent={{-110,-10},{-90,10}})));
+    Modelica.Blocks.Interfaces.RealInput toeL(unit="rad")
+      "Left-wheel toe offset (active-toe actuator hook)"
+      annotation (Placement(transformation(extent={{-120,50},{-100,70}})));
+    Modelica.Blocks.Interfaces.RealInput toeR(unit="rad")
+      "Right-wheel toe offset (active-toe actuator hook)"
+      annotation (Placement(transformation(extent={{-120,-70},{-100,-50}})));
+
+    // chassis states
+    Modelica.Units.SI.Velocity vy(start=0, fixed=true) "Lateral velocity at CG";
+    Modelica.Units.SI.AngularVelocity r(start=0, fixed=true) "Yaw rate";
+    Modelica.Units.SI.Angle psi(start=0, fixed=true) "Heading";
+    Modelica.Units.SI.Position X(start=0, fixed=true) "Global x position";
+    Modelica.Units.SI.Position Y(start=0, fixed=true) "Global y position";
+    Modelica.Units.SI.Force dFz(start=0, fixed=true)
+      "Front lateral load transfer (roll-lagged)";
+    // tire states: relaxation-lagged forces and aligning moments
+    Modelica.Units.SI.Force FyFL(start=0, fixed=true);
+    Modelica.Units.SI.Force FyFR(start=0, fixed=true);
+    Modelica.Units.SI.Force FyR(start=0, fixed=true);
+    Modelica.Units.SI.Torque MzFL(start=0, fixed=true);
+    Modelica.Units.SI.Torque MzFR(start=0, fixed=true);
+    Modelica.Units.SI.Torque MzR(start=0, fixed=true);
+    // kinematics and loads
+    Modelica.Units.SI.Angle dL "Left road-wheel steer angle";
+    Modelica.Units.SI.Angle dR "Right road-wheel steer angle";
+    Modelica.Units.SI.Angle aFL "Front-left slip angle";
+    Modelica.Units.SI.Angle aFR "Front-right slip angle";
+    Modelica.Units.SI.Angle aR "Rear slip angle";
+    Modelica.Units.SI.Force FzFL, FzFR, FzR;
+    Modelica.Units.SI.Acceleration ay "Lateral acceleration (= der(vy) + u*r)";
+    Modelica.Units.SI.Force FySSFL, FySSFR, FySSR;
+    Modelica.Units.SI.Torque MzSSFL, MzSSFR, MzSSR;
+    // kingpin / tie-rod
+    Modelica.Units.SI.Torque MkpL "Left kingpin moment resisting steer";
+    Modelica.Units.SI.Torque MkpR "Right kingpin moment resisting steer";
+    Modelica.Units.SI.Torque MkpMechL, MkpMechR "Mechanical-trail contribution";
+    Modelica.Units.SI.Torque MkpPneuL, MkpPneuR "Pneumatic-trail contribution";
+    Modelica.Units.SI.Force FtieL "Left tie-rod axial force";
+    Modelica.Units.SI.Force FtieR "Right tie-rod axial force";
+    Modelica.Units.SI.Position s;
+    Modelica.Units.SI.Velocity v;
+    Modelica.Units.SI.Acceleration accRack;
+  protected
+    constant Modelica.Units.SI.Acceleration g = Modelica.Constants.g_n;
+    final parameter Modelica.Units.SI.Length L = a + b;
+    final parameter Modelica.Units.SI.Force Fz0F = m*g*b/(2*L);
+    final parameter Modelica.Units.SI.Force Fz0R = m*g*a/L;
+  equation
+    s = rack.s;
+    v = der(s);
+    accRack = der(v);
+    dL = s/Larm + toeL;
+    dR = s/Larm + toeR;
+    // per-wheel slip angles (individual front wheels: the tricycle content)
+    aFL = dL - atan((vy + a*r)/noEvent(max(u - r*tf/2, uMin)));
+    aFR = dR - atan((vy + a*r)/noEvent(max(u + r*tf/2, uMin)));
+    aR  =    - atan((vy - b*r)/noEvent(max(u, uMin)));
+    // quasi-static front load transfer, lagged with the roll mode (breaks the Fz<->Fy loop)
+    ay = (FyFL*cos(dL) + FyFR*cos(dR) + FyR)/m;
+    tauRoll*der(dFz) + dFz = xiF*m*ay*hcg/tf;
+    FzFL = Fz0F - dFz;
+    FzFR = Fz0F + dFz;
+    FzR  = Fz0R;
+    // brush tires with first-order relaxation (sigma/u lag on force and moment)
+    (FySSFL, MzSSFL) = brushForces(aFL, FzFL, tireF);
+    (FySSFR, MzSSFR) = brushForces(aFR, FzFR, tireF);
+    (FySSR,  MzSSR)  = brushForces(aR, FzR, tireR);
+    (tireF.sigmaRel/noEvent(max(u, uMin)))*der(FyFL) + FyFL = FySSFL;
+    (tireF.sigmaRel/noEvent(max(u, uMin)))*der(FyFR) + FyFR = FySSFR;
+    (tireR.sigmaRel/noEvent(max(u, uMin)))*der(FyR)  + FyR  = FySSR;
+    (tireF.sigmaRel/noEvent(max(u, uMin)))*der(MzFL) + MzFL = MzSSFL;
+    (tireF.sigmaRel/noEvent(max(u, uMin)))*der(MzFR) + MzFR = MzSSFR;
+    (tireR.sigmaRel/noEvent(max(u, uMin)))*der(MzR)  + MzR  = MzSSR;
+    // planar chassis: lateral + yaw at constant forward speed, plus path kinematics
+    m*(der(vy) + u*r) = FyFL*cos(dL) + FyFR*cos(dR) + FyR;
+    Izz*der(r) = a*(FyFL*cos(dL) + FyFR*cos(dR)) - b*FyR
+               + (tf/2)*(FyFL*sin(dL) - FyFR*sin(dR))
+               + MzFL + MzFR + MzR;
+    der(psi) = r;
+    der(X) = u*cos(psi) - vy*sin(psi);
+    der(Y) = u*sin(psi) + vy*cos(psi);
+    // kingpin moments -> tie-rod forces -> rack reaction
+    // (Mz < 0 for alpha > 0, so -Mz is the positive restoring pneumatic part)
+    MkpMechL = FyFL*tMech;
+    MkpPneuL = -MzFL;
+    MkpL = MkpMechL + MkpPneuL;
+    MkpMechR = FyFR*tMech;
+    MkpPneuR = -MzFR;
+    MkpR = MkpMechR + MkpPneuR;
+    FtieL = MkpL/Larm;
+    FtieR = MkpR/Larm;
+    rack.f = FtieL + FtieR + (2*Jkp/Larm^2)*accRack;
+    annotation (
+      Icon(coordinateSystem(preserveAspectRatio=false), graphics={
+        Rectangle(extent={{-60,80},{60,-80}}, lineColor={0,0,0},
+          fillColor={235,235,245}, fillPattern=FillPattern.Solid, radius=20),
+        Rectangle(extent={{-58,72},{-30,44}}, lineColor={0,0,0},
+          fillColor={64,64,64}, fillPattern=FillPattern.Solid, radius=6),
+        Rectangle(extent={{30,72},{58,44}}, lineColor={0,0,0},
+          fillColor={64,64,64}, fillPattern=FillPattern.Solid, radius=6),
+        Rectangle(extent={{-14,-76},{14,-48}}, lineColor={0,0,0},
+          fillColor={64,64,64}, fillPattern=FillPattern.Solid, radius=6),
+        Text(extent={{-150,120},{150,90}}, textColor={0,0,255}, textString="%name")}),
+      Documentation(info="<html>
+<p>Planar three-wheel (&quot;tricycle&quot;) vehicle for studying tire forces on the
+suspension links and steering arm: <b>individual front-left/right wheels</b> (own slip
+angles, own vertical loads via quasi-static lateral load transfer) and a <b>lumped rear
+wheel</b> &mdash; the same architecture used for the front-axle force estimation in
+WO&nbsp;2025/113783 (Marzbanrad &amp; Jonasson). Chassis: 2 DOF (lateral velocity,
+yaw rate) at constant forward speed, plus path kinematics. Tires: Pacejka brush model
+with degressive-load cornering stiffness and relaxation-length lag.</p>
+<p>The kingpin moment per side is
+M<sub>kp</sub> = F<sub>y</sub>&middot;t<sub>mech</sub> &minus; M<sub>z</sub>
+(mechanical + pneumatic trail); the tie-rod force is M<sub>kp</sub>/L<sub>arm</sub>,
+and both sides sum into the rack flange together with the reflected road-wheel inertia.
+<code>toeL</code>/<code>toeR</code> add per-wheel steer offsets &mdash; the hooks for an
+active toe-control actuator (wire to 0 when unused).</p>
+<p><b>Documented omissions</b> (negligible for a constant-speed double lane change at
+road-wheel angles of a few degrees): Ackermann split (&lt;0.1&deg;), Fz-jacking from
+KPI/caster (&lt;2 N&middot;m), scrub-radius&times;Fx (no drive/brake force), rear tire
+load sensitivity (lumped axle, slightly understeer-optimistic; front link loads
+unaffected), roll DOF (load transfer carries a first-order roll-mode lag instead).</p>
+<p>Sources: Pacejka <i>Tire and Vehicle Dynamics</i> Ch. 3 &amp; 7; Heydinger et al.
+SAE 1999-01-1336 (mass/inertia); Milliken &amp; Milliken RCVD (load transfer, roll
+stiffness fraction); Reimpell (caster trail); Yin et al. 2024 (kingpin wheel inertia).</p>
+</html>"));
+  end PlanarTricycle;
+
+  model ManualSteering
+    "Unassisted rack-and-pinion steering: handwheel inertia + ideal pinion + rack mass"
+    parameter Real iS = 20 "Overall steering ratio, handwheel angle / road-wheel angle";
+    parameter Modelica.Units.SI.Length Larm = 0.11
+      "Steering-arm length (must match the vehicle): rack travel per road-wheel radian";
+    parameter Modelica.Units.SI.Inertia Jhw = 0.035
+      "Handwheel + column inertia";
+    parameter Modelica.Units.SI.Mass mRack = 3.0
+      "Rack + tie-rod translating mass";
+    final parameter Modelica.Units.SI.Length rPinion = Larm/iS
+      "Effective pinion radius: rack travel per handwheel radian";
+
+    Modelica.Mechanics.Rotational.Interfaces.Flange_a handwheel
+      "Handwheel connection (driver side)"
+      annotation (Placement(transformation(extent={{-110,-10},{-90,10}})));
+    Modelica.Mechanics.Translational.Interfaces.Flange_b rack
+      "Rack / tie-rod connection (vehicle side)"
+      annotation (Placement(transformation(extent={{90,-10},{110,10}})));
+
+    Modelica.Mechanics.Rotational.Components.Inertia hw(J=Jhw)
+      annotation (Placement(transformation(extent={{-60,-10},{-40,10}})));
+    Modelica.Mechanics.Rotational.Components.IdealGearR2T pinion(ratio=1/rPinion)
+      "Rack and pinion: handwheel angle <-> rack travel"
+      annotation (Placement(transformation(extent={{-10,-10},{10,10}})));
+    Modelica.Mechanics.Translational.Components.Mass rackMass(m=mRack)
+      annotation (Placement(transformation(extent={{40,-10},{60,10}})));
+  equation
+    connect(handwheel, hw.flange_a);
+    connect(hw.flange_b, pinion.flangeR);
+    connect(pinion.flangeT, rackMass.flange_a);
+    connect(rackMass.flange_b, rack);
+    annotation (Icon(coordinateSystem(preserveAspectRatio=false), graphics={
+        Ellipse(extent={{-90,30},{-30,-30}}, lineColor={0,0,0}, lineThickness=0.5),
+        Ellipse(extent={{-66,6},{-54,-6}}, lineColor={0,0,0}, fillColor={64,64,64},
+          fillPattern=FillPattern.Solid),
+        Rectangle(extent={{-30,6},{90,-6}}, lineColor={64,64,64},
+          fillPattern=FillPattern.HorizontalCylinder, fillColor={192,192,192}),
+        Text(extent={{-150,80},{150,50}}, textColor={0,0,255}, textString="%name"),
+        Text(extent={{-150,-40},{150,-70}}, textColor={0,0,0}, textString="i=%iS")}),
+      Documentation(info="<html><p>Traditional <b>unassisted</b> rack-and-pinion
+steering: a handwheel/column inertia drives the rack through an ideal (lossless,
+backlash-free) pinion of effective radius r<sub>p</sub> = L<sub>arm</sub>/i<sub>S</sub>,
+so the kinematics are &delta; = &phi;<sub>HW</sub>/i<sub>S</sub>. With no assistance,
+the full kingpin reaction reflects to the handwheel:
+&tau;<sub>HW</sub> = F<sub>rack</sub>&middot;r<sub>p</sub> &mdash; the steering-feel
+torque is a primary output. The default ratio i<sub>S</sub> = 20 is typical for manual
+(unassisted) passenger-car steering (rack travel &asymp; 35 mm per handwheel rev);
+column compliance and friction are omitted (document if they matter for your use).</p>
+</html>"));
+  end ManualSteering;
+
+  package Examples "Vehicle validation and the ISO 3888-1 double lane change"
+    extends Modelica.Icons.ExamplesPackage;
+
+    model StepSteer
+      "Validation: ideal-position steer step into the tricycle vehicle (no steering hardware) for understeer-gradient checks"
+      extends Modelica.Icons.Example;
+      parameter Modelica.Units.SI.Velocity u = 80/3.6 "Forward speed";
+      parameter Real deltaStepDeg = 0.5 "Road-wheel steer step [deg]";
+      parameter Modelica.Units.SI.Length Larm = 0.11 "Steering-arm length";
+
+      output Real yawRateDegS = trike.r*180/pi "Yaw rate [deg/s]";
+      output Real ayG = trike.ay/Modelica.Constants.g_n "Lateral acceleration [g]";
+      output Real deltaLdeg = trike.dL*180/pi "Left road-wheel angle [deg]";
+      output Real betaDeg = atan(trike.vy/u)*180/pi "Body sideslip [deg]";
+      output Modelica.Units.SI.Force FtieL = trike.FtieL "Left tie-rod force [N]";
+      output Modelica.Units.SI.Force FtieR = trike.FtieR "Right tie-rod force [N]";
+      output Modelica.Units.SI.Force FzFL = trike.FzFL "Front-left vertical load [N]";
+      output Modelica.Units.SI.Force FzFR = trike.FzFR "Front-right vertical load [N]";
+      output Real alphaFLdeg = trike.aFL*180/pi "Front-left slip angle [deg]";
+      output Modelica.Units.SI.Force FyFL = trike.FyFL "Front-left lateral force [N]";
+      output Modelica.Units.SI.Torque MzFL = trike.MzFL "Front-left aligning moment [N.m]";
+    protected
+      constant Real pi = Modelica.Constants.pi;
+    public
+      Tricycle.PlanarTricycle trike(u=u, Larm=Larm)
+        annotation (Placement(transformation(extent={{20,-10},{40,10}})));
+      Modelica.Mechanics.Translational.Sources.Position pos(exact=false, f_crit=5)
+        "Ideal (filtered) rack-position source - no steering hardware"
+        annotation (Placement(transformation(extent={{-20,-10},{0,10}})));
+      Modelica.Blocks.Sources.Step sRef(
+        height=deltaStepDeg*Modelica.Constants.pi/180*Larm, startTime=1)
+        annotation (Placement(transformation(extent={{-60,-10},{-40,10}})));
+      Modelica.Blocks.Sources.Constant toe0L(k=0)
+        annotation (Placement(transformation(extent={{-20,30},{0,50}})));
+      Modelica.Blocks.Sources.Constant toe0R(k=0)
+        annotation (Placement(transformation(extent={{-20,-50},{0,-30}})));
+    equation
+      connect(sRef.y, pos.s_ref);
+      connect(pos.flange, trike.rack);
+      connect(toe0L.y, trike.toeL);
+      connect(toe0R.y, trike.toeR);
+      annotation (experiment(StopTime=6, Interval=0.002, Tolerance=1e-6),
+        Documentation(info="<html><p>Steer-step response of the
+<a href=\"modelica://Tricycle.PlanarTricycle\">PlanarTricycle</a> with an ideal
+position source, so vehicle dynamics can be validated in isolation: sweeping
+<code>u</code> and reading the steady-state yaw-rate gain checks the understeer
+gradient against the analytic bicycle model.</p></html>"));
+    end StepSteer;
+
+    model DoubleLaneChange
+      "ISO 3888-1 double lane change: preview driver turns the handwheel of the manual rack, steering the tricycle vehicle"
+      extends Modelica.Icons.Example;
+      parameter Modelica.Units.SI.Velocity u = 80/3.6 "Vehicle speed";
+      parameter Modelica.Units.SI.Time Tp = 0.55
+        "Driver preview time (compensates the arm lag; shorter values destabilize the loop)";
+      parameter Real Kdrv(unit="rad/m") = 0.22 "Driver preview gain";
+      parameter Real Kr(unit="rad.s/rad") = 0.25 "Driver yaw-rate damping";
+      parameter Real iS = 20 "Overall steering ratio";
+      parameter Modelica.Units.SI.Length Larm = 0.11 "Steering-arm length";
+      parameter Modelica.Units.SI.Frequency fArm = 2
+        "Driver arm/neuromuscular bandwidth (position-tracking filter)";
+
+      output Modelica.Units.SI.Force FtieL = trike.FtieL "Left tie-rod force [N]";
+      output Modelica.Units.SI.Force FtieR = trike.FtieR "Right tie-rod force [N]";
+      output Modelica.Units.SI.Torque MkpL = trike.MkpL "Left kingpin moment [N.m]";
+      output Modelica.Units.SI.Torque MkpR = trike.MkpR "Right kingpin moment [N.m]";
+      output Modelica.Units.SI.Torque MkpMechL = trike.MkpMechL "Mechanical-trail part, left";
+      output Modelica.Units.SI.Torque MkpMechR = trike.MkpMechR "Mechanical-trail part, right";
+      output Modelica.Units.SI.Torque MkpPneuL = trike.MkpPneuL "Pneumatic-trail part, left";
+      output Modelica.Units.SI.Torque MkpPneuR = trike.MkpPneuR "Pneumatic-trail part, right";
+      output Modelica.Units.SI.Force rackForce = trike.rack.f "Rack axial reaction [N]";
+      output Modelica.Units.SI.Force FyFL = trike.FyFL "Front-left lateral force [N]";
+      output Modelica.Units.SI.Force FyFR = trike.FyFR "Front-right lateral force [N]";
+      output Modelica.Units.SI.Force FyR = trike.FyR "Rear (lumped) lateral force [N]";
+      output Modelica.Units.SI.Force FzFL = trike.FzFL "Front-left vertical load [N]";
+      output Modelica.Units.SI.Force FzFR = trike.FzFR "Front-right vertical load [N]";
+      output Modelica.Units.SI.Torque MzFL = trike.MzFL "Front-left aligning moment [N.m]";
+      output Modelica.Units.SI.Torque MzFR = trike.MzFR "Front-right aligning moment [N.m]";
+      output Real alphaFLdeg = trike.aFL*180/pi "Front-left slip angle [deg]";
+      output Real alphaFRdeg = trike.aFR*180/pi "Front-right slip angle [deg]";
+      output Real alphaRdeg = trike.aR*180/pi "Rear slip angle [deg]";
+      output Real yawRateDegS = trike.r*180/pi "Yaw rate [deg/s]";
+      output Real ayG = trike.ay/Modelica.Constants.g_n "Lateral acceleration [g]";
+      output Real betaDeg = atan(trike.vy/u)*180/pi "Body sideslip angle [deg]";
+      output Modelica.Units.SI.Position X = trike.X "Global x [m]";
+      output Modelica.Units.SI.Position Y = trike.Y "Global y [m]";
+      output Real psiDeg = trike.psi*180/pi "Heading [deg]";
+      output Real deltaLdeg = trike.dL*180/pi "Left road-wheel angle [deg]";
+      output Real deltaRdeg = trike.dR*180/pi "Right road-wheel angle [deg]";
+      output Real dCmdDeg = driver.dCmd*180/pi "Driver steer command [deg]";
+      output Real hwaDeg = steering.hw.phi*180/pi "Handwheel angle [deg]";
+      output Modelica.Units.SI.Torque hwTorque = hwTorqueSensor.tau
+        "Handwheel (steering-feel) torque [N.m]";
+      output Modelica.Units.SI.Position rackDisp = steering.rackMass.s "Rack displacement [m]";
+    protected
+      constant Real pi = Modelica.Constants.pi;
+    public
+      Tricycle.Iso3888Path driver(u=u, Tp=Tp, Kdrv=Kdrv, Kr=Kr)
+        annotation (Placement(transformation(extent={{-120,40},{-100,60}})));
+      Modelica.Blocks.Math.Gain refGain(k=iS)
+        "Road-wheel steer command [rad] -> handwheel angle reference [rad]"
+        annotation (Placement(transformation(extent={{-86,44},{-74,56}})));
+      Modelica.Mechanics.Rotational.Sources.Position arm(exact=false, f_crit=fArm)
+        "Driver arm: filtered handwheel-position tracking"
+        annotation (Placement(transformation(extent={{-60,40},{-40,60}})));
+      Modelica.Mechanics.Rotational.Sensors.TorqueSensor hwTorqueSensor
+        annotation (Placement(transformation(extent={{-30,40},{-10,60}})));
+      Tricycle.ManualSteering steering(iS=iS, Larm=Larm)
+        annotation (Placement(transformation(extent={{0,40},{20,60}})));
+      Tricycle.PlanarTricycle trike(u=u, Larm=Larm)
+        annotation (Placement(transformation(extent={{40,40},{60,60}})));
+      Modelica.Blocks.Sources.RealExpression Xe(y=trike.X)
+        annotation (Placement(transformation(extent={{-156,54},{-136,68}})));
+      Modelica.Blocks.Sources.RealExpression Ye(y=trike.Y)
+        annotation (Placement(transformation(extent={{-156,42},{-136,56}})));
+      Modelica.Blocks.Sources.RealExpression psie(y=trike.psi)
+        annotation (Placement(transformation(extent={{-156,30},{-136,44}})));
+      Modelica.Blocks.Sources.RealExpression vye(y=trike.vy)
+        annotation (Placement(transformation(extent={{-156,18},{-136,32}})));
+      Modelica.Blocks.Sources.RealExpression re(y=trike.r)
+        annotation (Placement(transformation(extent={{-156,6},{-136,20}})));
+      Modelica.Blocks.Sources.Constant toe0L(k=0)
+        annotation (Placement(transformation(extent={{20,70},{40,90}})));
+      Modelica.Blocks.Sources.Constant toe0R(k=0)
+        annotation (Placement(transformation(extent={{20,10},{40,30}})));
+    equation
+      connect(Xe.y, driver.X);
+      connect(Ye.y, driver.Y);
+      connect(psie.y, driver.psi);
+      connect(vye.y, driver.vy);
+      connect(re.y, driver.r);
+      connect(driver.dCmd, refGain.u);
+      connect(refGain.y, arm.phi_ref);
+      connect(arm.flange, hwTorqueSensor.flange_a);
+      connect(hwTorqueSensor.flange_b, steering.handwheel);
+      connect(steering.rack, trike.rack);
+      connect(toe0L.y, trike.toeL);
+      connect(toe0R.y, trike.toeR);
+      annotation (experiment(StopTime=7, Interval=0.001, Tolerance=1e-6),
+        Documentation(info="<html><p>ISO 3888-1 double lane change at constant speed:
+the preview driver tracks the reference centerline and commands a road-wheel angle,
+converted to a handwheel reference (ratio i<sub>S</sub>) and applied by a filtered
+position source representing the driver's arm. The <b>unassisted</b> manual rack
+reflects the full kingpin reaction back to the handwheel, so the steering-feel torque
+<code>hwTorque</code> is a headline output alongside the tie-rod forces.</p></html>"));
+    end DoubleLaneChange;
+
+    model OpenLoopDLC
+      "Open-loop lane-change-shaped steer (one-period sine) through the manual rack - repeatable sweeps"
+      extends Modelica.Icons.Example;
+      parameter Modelica.Units.SI.Velocity u = 80/3.6 "Vehicle speed";
+      parameter Real iS = 20 "Overall steering ratio";
+      parameter Modelica.Units.SI.Length Larm = 0.11 "Steering-arm length";
+      parameter Modelica.Units.SI.Frequency fArm = 2 "Driver arm bandwidth";
+      parameter Real ampDeg = 3 "Road-wheel steer amplitude [deg]";
+      parameter Modelica.Units.SI.Time period = 2 "Steer period [s]";
+      parameter Modelica.Units.SI.Time t0 = 1 "Steer start time [s]";
+
+      output Modelica.Units.SI.Force FtieL = trike.FtieL "Left tie-rod force [N]";
+      output Modelica.Units.SI.Force FtieR = trike.FtieR "Right tie-rod force [N]";
+      output Modelica.Units.SI.Torque MkpL = trike.MkpL "Left kingpin moment [N.m]";
+      output Modelica.Units.SI.Torque MkpR = trike.MkpR "Right kingpin moment [N.m]";
+      output Modelica.Units.SI.Force rackForce = trike.rack.f "Rack axial reaction [N]";
+      output Real ayG = trike.ay/Modelica.Constants.g_n "Lateral acceleration [g]";
+      output Real yawRateDegS = trike.r*180/pi "Yaw rate [deg/s]";
+      output Modelica.Units.SI.Position Y = trike.Y "Global y [m]";
+      output Real deltaLdeg = trike.dL*180/pi "Left road-wheel angle [deg]";
+      output Modelica.Units.SI.Torque hwTorque = hwTorqueSensor.tau "Handwheel torque [N.m]";
+    protected
+      constant Real pi = Modelica.Constants.pi;
+    public
+      Modelica.Blocks.Sources.RealExpression steerCmd(
+        y=if time > t0 and time < t0 + period then
+            iS*ampDeg*Modelica.Constants.pi/180*sin(2*Modelica.Constants.pi*(time - t0)/period)
+          else 0.0) "One-period-sine handwheel angle command [rad]"
+        annotation (Placement(transformation(extent={{-120,42},{-100,58}})));
+      Modelica.Mechanics.Rotational.Sources.Position arm(exact=false, f_crit=fArm)
+        annotation (Placement(transformation(extent={{-60,40},{-40,60}})));
+      Modelica.Mechanics.Rotational.Sensors.TorqueSensor hwTorqueSensor
+        annotation (Placement(transformation(extent={{-30,40},{-10,60}})));
+      Tricycle.ManualSteering steering(iS=iS, Larm=Larm)
+        annotation (Placement(transformation(extent={{0,40},{20,60}})));
+      Tricycle.PlanarTricycle trike(u=u, Larm=Larm)
+        annotation (Placement(transformation(extent={{40,40},{60,60}})));
+      Modelica.Blocks.Sources.Constant toe0L(k=0)
+        annotation (Placement(transformation(extent={{20,70},{40,90}})));
+      Modelica.Blocks.Sources.Constant toe0R(k=0)
+        annotation (Placement(transformation(extent={{20,10},{40,30}})));
+    equation
+      connect(steerCmd.y, arm.phi_ref);
+      connect(arm.flange, hwTorqueSensor.flange_a);
+      connect(hwTorqueSensor.flange_b, steering.handwheel);
+      connect(steering.rack, trike.rack);
+      connect(toe0L.y, trike.toeL);
+      connect(toe0R.y, trike.toeR);
+      annotation (experiment(StopTime=5, Interval=0.001, Tolerance=1e-6),
+        Documentation(info="<html><p>Same steering and vehicle as
+<a href=\"modelica://Tricycle.Examples.DoubleLaneChange\">DoubleLaneChange</a> but with
+a prescribed one-period-sine handwheel command instead of the closed-loop driver:
+perfectly repeatable for amplitude/frequency sweeps.</p></html>"));
+    end OpenLoopDLC;
+  end Examples;
+
+  annotation (
+    version="0.1.0",
+    Documentation(info="<html>
+<p>Minimal, defensible planar vehicle model for studying tire forces on the suspension
+links and steering arm: a <b>three-wheel (tricycle)</b> chassis (individual front
+wheels, lumped rear &mdash; the architecture of WO&nbsp;2025/113783), Pacejka brush
+tires with collapsing pneumatic trail, kingpin trail decomposition, and a traditional
+<b>unassisted rack-and-pinion</b> steering driven by a preview driver through the
+ISO&nbsp;3888-1 double lane change. See <code>sources/SOURCES.md</code> for the
+provenance of every parameter.</p>
+</html>"));
+end Tricycle;
