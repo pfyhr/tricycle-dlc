@@ -31,6 +31,12 @@ links and steering arm during an **ISO 3888-1 double lane change**, with a tradi
   closed-loop at the ISO-recommended 80 km/h), `OpenLoopDLC` (prescribed one-period
   sine, repeatable sweeps).
 
+![Double lane change animation](outputs/gif/dlc_anim.gif)
+
+*Closed-loop ISO 3888-1 double lane change at 80 km/h (real-time playback): vehicle
+outline at true yaw with the running time, heading and lateral-acceleration readout.
+The distance axis is compressed 2:1; gate compliance is checked on the true footprint.*
+
 ## Headline results (defaults: D-segment sedan, 80 km/h)
 
 | Quantity | Value |
@@ -62,7 +68,10 @@ top-level parameter of the examples, overridable per run via `-override=...`.
 ## Validation
 
 - Steady-state yaw-rate gain matches the analytic linear bicycle *including aligning
-  moments* to < 1 % across 40–120 km/h (`outputs/svg/dlc_understeer.svg`).
+  moments* to < 1 % across 40–120 km/h:
+
+  ![Yaw-rate gain vs speed](outputs/svg/dlc_understeer.svg)
+
 - A NumPy twin of the brush tire is asserted against the Modelica steady state to
   < 10⁻³ on every run of `dlc_maneuver.py`.
 - Gate compliance is checked on the full yawed vehicle footprint (all four corners),
