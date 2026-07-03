@@ -175,7 +175,7 @@ for xst in (20, 70, 100):
 a.set_title('ISO 3888-1 double lane change at 80 km/h — CG path vs cone gates, '
             'vehicle outline at 20 / 70 / 100 m (labels: true yaw)')
 a.legend(fontsize=8, loc='upper right')
-plt.tight_layout(); plt.savefig(f'{SVG}/dlc_path.svg', transparent=True); plt.close()
+plt.tight_layout(); plt.savefig(f'{SVG}/dlc_path.svg', facecolor="white"); plt.close()
 
 # ---- 1b. animated trajectory (GIF) ------------------------------------------------
 from matplotlib import animation
@@ -222,7 +222,7 @@ ax[2].plot(t, d['alphaFLdeg'], color='tab:orange', lw=1, alpha=0.8, label='slip 
 ax[2].set_ylabel('[deg]'); ax[2].set_xlabel('time [s]'); ax[2].legend(fontsize=8)
 for a_ in ax: a_.grid(alpha=.3); a_.axhline(0, color='k', lw=.4)
 ax[0].set_title('Double lane change — vehicle response')
-plt.tight_layout(); plt.savefig(f'{SVG}/dlc_states.svg', transparent=True); plt.close()
+plt.tight_layout(); plt.savefig(f'{SVG}/dlc_states.svg', facecolor="white"); plt.close()
 
 # ---- 3. tie-rod forces (headline) --------------------------------------------------
 fig, a = plt.subplots(figsize=(9, 4.2))
@@ -236,7 +236,7 @@ for sig, name in [(d['FtieL'], 'left'), (d['FtieR'], 'right')]:
 a.set_xlabel('time [s]'); a.set_ylabel('axial force [kN]')
 a.set_title('Tie-rod / steering-arm axial forces — ISO 3888-1 DLC at 80 km/h')
 a.grid(alpha=.3); a.axhline(0, color='k', lw=.4); a.legend(fontsize=8)
-plt.tight_layout(); plt.savefig(f'{SVG}/dlc_tierod.svg', transparent=True); plt.close()
+plt.tight_layout(); plt.savefig(f'{SVG}/dlc_tierod.svg', facecolor="white"); plt.close()
 
 # ---- 4. kingpin axis: road-wheel angle, moment decomposition, trail ----------------
 fig, ax = plt.subplots(4, 1, figsize=(9, 10.5), sharex=True)
@@ -266,7 +266,7 @@ ax[3].set_ylabel('pneumatic trail [mm]'); ax[3].set_ylim(-2, 30)
 ax[3].legend(fontsize=8, loc='lower right'); ax[3].set_xlabel('time [s]')
 for a_ in ax: a_.grid(alpha=.3); a_.axhline(0, color='k', lw=.4)
 ax[0].set_title('Kingpin (steering-axis) view: road-wheel angle, moment split, trail collapse')
-plt.tight_layout(); plt.savefig(f'{SVG}/dlc_kingpin_decomp.svg', transparent=True); plt.close()
+plt.tight_layout(); plt.savefig(f'{SVG}/dlc_kingpin_decomp.svg', facecolor="white"); plt.close()
 
 # ---- 5. steering feel: handwheel angle and torque ----------------------------------
 fig, ax = plt.subplots(2, 1, figsize=(9, 5.6), sharex=True)
@@ -280,7 +280,7 @@ ax[1].annotate(f"{d['hwTorque'][i]:+.1f} N.m", (t[i], d['hwTorque'][i]),
 ax[1].set_ylabel('handwheel torque [N.m]'); ax[1].set_xlabel('time [s]')
 for a_ in ax: a_.grid(alpha=.3); a_.axhline(0, color='k', lw=.4)
 ax[0].set_title('Manual (unassisted) steering: handwheel angle and steering-feel torque')
-plt.tight_layout(); plt.savefig(f'{SVG}/dlc_handwheel.svg', transparent=True); plt.close()
+plt.tight_layout(); plt.savefig(f'{SVG}/dlc_handwheel.svg', facecolor="white"); plt.close()
 
 # ---- 6. brush tire curves + Modelica cross-check -----------------------------------
 fig, ax = plt.subplots(1, 2, figsize=(9, 3.8))
@@ -303,7 +303,7 @@ ax[1].set_xlabel('slip angle [deg]'); ax[1].set_ylabel('aligning moment Mz [N.m]
 ax[0].legend(fontsize=8)
 for a_ in ax: a_.grid(alpha=.3); a_.axhline(0, color='k', lw=.4)
 fig.suptitle('Brush tire model (front): saturation and aligning-moment collapse', fontsize=10)
-plt.tight_layout(); plt.savefig(f'{SVG}/tire_brush.svg', transparent=True); plt.close()
+plt.tight_layout(); plt.savefig(f'{SVG}/tire_brush.svg', facecolor="white"); plt.close()
 
 # ---- 7. understeer gradient vs analytic bicycle (with aligning moments) ------------
 Ca_f = lambda Fz: TIRE_F['c1']*np.sin(2*np.arctan(Fz/TIRE_F['c2']))
@@ -336,7 +336,7 @@ Kus_degg = np.degrees(M/L*(B/Cf - A/Cr)*G)
 a.set_xlabel('speed [km/h]'); a.set_ylabel('yaw-rate gain r/delta [1/s]')
 a.set_title(f'Steady-state handling check (force-only understeer gradient {Kus_degg:.2f} deg/g)')
 a.grid(alpha=.3); a.legend(fontsize=8)
-plt.tight_layout(); plt.savefig(f'{SVG}/dlc_understeer.svg', transparent=True); plt.close()
+plt.tight_layout(); plt.savefig(f'{SVG}/dlc_understeer.svg', facecolor="white"); plt.close()
 
 # ---- summary CSV -------------------------------------------------------------------
 with open(os.path.join(HERE, 'outputs/dlc_summary.csv'), 'w', newline='') as fh:
