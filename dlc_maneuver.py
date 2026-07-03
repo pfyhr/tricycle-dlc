@@ -331,9 +331,9 @@ gains = []
 for kmh in SPEEDS_KMH:
     ss = S[kmh]; i = ss['time'] > 5.0
     gains.append(np.radians(ss['yawRateDegS'][i].mean())/np.radians(ss['deltaLdeg'][i].mean()))
-a.plot(SPEEDS_KMH, gains, 'o', color='tab:blue', ms=6, label='tricycle model (0.5 deg step)')
+a.plot(SPEEDS_KMH, gains, 'o', color='tab:blue', ms=6, label='tricycle model (0.5° steer step)')
 Kus_degg = np.degrees(M/L*(B/Cf - A/Cr)*G)
-a.set_xlabel('speed [km/h]'); a.set_ylabel('yaw-rate gain r/delta [1/s]')
+a.set_xlabel('speed [km/h]'); a.set_ylabel('yaw-rate gain $r/\\delta$ [1/s]')
 a.set_title(f'Steady-state handling check (force-only understeer gradient {Kus_degg:.2f} deg/g)')
 a.grid(alpha=.3); a.legend(fontsize=8)
 plt.tight_layout(); plt.savefig(f'{SVG}/dlc_understeer.svg', facecolor="white"); plt.close()
