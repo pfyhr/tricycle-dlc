@@ -1,0 +1,12 @@
+quantity,value,unit
+track,Kinnekulle Ring,-
+lap_time,79.2,s
+track_length,2055.0,m
+ideal_quasi_steady_lap,77.9,s
+v_max,153.1,km/h
+v_min,58.6,km/h
+abs_n_max,1.61,m
+ay_peak,0.92,g
+brake_peak,0.69,g
+tie_rod_peak,1822,N
+drive_power_peak,150,kW

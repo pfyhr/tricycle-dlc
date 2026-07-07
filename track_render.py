@@ -1,27 +1,33 @@
-"""Chase-camera lap viewer: package the NordschleifeLap simulation results into a
-self-contained HTML canvas player (outputs/ns_chase.html) - GTA-style follow camera
-at road level zoom, a north-up minimap, and a telemetry HUD (speed, yaw rate,
+"""Chase-camera lap viewer: package TrackLap simulation results into a
+self-contained HTML canvas player (outputs/<track>_chase.html) - GTA-style follow
+camera at road level zoom, a north-up minimap, and a telemetry HUD (speed, yaw rate,
 lateral/longitudinal acceleration, g-g dot, steer and pedal bars).
 
-Run AFTER track_lap.py (which leaves modelica/build/nslap_res.csv behind):
-    python3 track_lap.py && python3 track_render.py
+Run AFTER track_lap.py for the same track:
+    python3 track_lap.py --track=knutstorp && python3 track_render.py --track=knutstorp
 """
-import json, os, sys
+import argparse, json, os, sys
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'tracks'))
 from speed_profile import load_centerline
+from fetch_track import TRACKS
 
-RES = os.path.join(HERE, 'modelica/build/nslap_res.csv')
-OUT = os.path.join(HERE, 'outputs/ns_chase.html')
+ap = argparse.ArgumentParser()
+ap.add_argument('--track', default='nordschleife', choices=list(TRACKS))
+TRACK = ap.parse_args().track
+CFG = TRACKS[TRACK]
+
+RES = os.path.join(HERE, f"modelica/build/{CFG['prefix']}_lap_res.csv")
+OUT = os.path.join(HERE, f"outputs/{CFG['prefix']}_chase.html")
 FPS = 10          # embedded telemetry rate; the player interpolates
 PMAX = 150e3      # must mirror the run (throttle bar = Pdrive/Pmax)
 
 if not os.path.exists(RES):
-    sys.exit('no simulation result - run track_lap.py first')
+    sys.exit(f'no simulation result - run track_lap.py --track={TRACK} first')
 
-s, xc, yc, psic, kap = load_centerline(os.path.join(HERE, 'tracks/nordschleife.csv'))
+s, xc, yc, psic, kap = load_centerline(os.path.join(HERE, f'tracks/{TRACK}.csv'))
 ds = s[1] - s[0]
 LTRK = s[-1] + ds
 d = np.genfromtxt(RES, delimiter=',', names=True)
@@ -60,7 +66,7 @@ data = {
     },
 }
 
-HTML = r"""<title>Nordschleife lap — chase cam</title>
+HTML = r"""<title>__TRACK__ lap — chase cam</title>
 <style>
 :root{
   --ground:#151a16; --asphalt:#3b3e44; --edge:#b9b4a6; --kerb:#a8473c;
@@ -113,7 +119,7 @@ canvas#world{position:fixed;inset:0;width:100vw;height:100vh;display:block}
 </style>
 <canvas id="world"></canvas>
 <div class="hud" id="timer"><div class="big" id="tval">0:00.0</div>
-  <div class="sub"><span id="sval">0.00</span> km of <span id="ltot"></span> km — Nürburgring Nordschleife (planar sim)</div></div>
+  <div class="sub"><span id="sval">0.00</span> km of <span id="ltot"></span> km — __TRACK__ (planar sim)</div></div>
 <div class="hud" id="mini"><canvas id="minimap" width="230" height="230"></canvas></div>
 <div class="hud" id="tele">
   <div id="speed"><div class="v" id="vval">0</div><div class="u">km/h</div></div>
@@ -308,6 +314,7 @@ requestAnimationFrame(t0 => { last = t0; requestAnimationFrame(frame); });
 """
 
 html = HTML.replace('__DATA__', json.dumps(data, separators=(',', ':')))
+html = html.replace('__TRACK__', CFG['display'])
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 open(OUT, 'w').write(html)
 kb = os.path.getsize(OUT)/1024

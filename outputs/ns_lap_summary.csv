@@ -1,11 +1,12 @@
 quantity,value,unit
-lap_time,667.3,s
+track,Nürburgring Nordschleife,-
+lap_time,662.3,s
 track_length,20720.0,m
 ideal_quasi_steady_lap,653.7,s
-v_max,208.3,km/h
+v_max,229.5,km/h
 v_min,47.8,km/h
 abs_n_max,1.67,m
 ay_peak,0.94,g
 brake_peak,0.75,g
-tie_rod_peak,1890,N
+tie_rod_peak,1889,N
 drive_power_peak,150,kW

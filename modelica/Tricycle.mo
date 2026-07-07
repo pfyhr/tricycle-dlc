@@ -557,12 +557,13 @@ a prescribed one-period-sine handwheel command instead of the closed-loop driver
 perfectly repeatable for amplitude/frequency sweeps.</p></html>"));
     end OpenLoopDLC;
 
-    model NordschleifeLap
-      "Minimum-manageable-time lap of the (planar) Nurburgring Nordschleife: power- and grip-limited tricycle, preview driver with speed control"
+    model TrackLap
+      "Minimum-manageable-time lap of a planar closed circuit: power- and grip-limited tricycle, preview driver with speed control"
       extends Modelica.Icons.Example;
-      parameter String fileName = "build/ns_track.txt"
-        "Track table (generate with track_lap.py: s, kappa, vRef, axFF)";
-      parameter Modelica.Units.SI.Length sLap = 20718.5 "Lap length (terminate there)";
+      parameter String fileName = "build/track.txt"
+        "Track table (generate with track_lap.py --track=...: s, kappa, vRef, axFF)";
+      parameter Modelica.Units.SI.Length sLap = 20718.5
+        "Lap length, terminate there (default: Nordschleife; overridden per track)";
       parameter Modelica.Units.SI.Velocity u0 = 30 "Rolling-start speed";
       parameter Modelica.Units.SI.Power Pmax = 150e3 "Peak drive power";
 
@@ -613,14 +614,15 @@ perfectly repeatable for amplitude/frequency sweeps.</p></html>"));
         terminate("lap complete");
       end when;
       annotation (experiment(StopTime=900, Interval=0.05, Tolerance=1e-6),
-        Documentation(info="<html><p>One flying lap of the planar Nordschleife
-centerline (OSM data, ~20.7 km). The driver tracks the quasi-steady minimum-time
-speed profile computed for exactly this vehicle setup (mass, power, grip, drag), so
-the lap time is the minimum <i>he</i> can manage on the centerline. The simulation
-terminates when s reaches <code>sLap</code>; the lap time is the final simulation
-time plus the small correction for the rolling start. Run via
-<code>track_lap.py</code>, which generates the track/speed-profile table first.</p></html>"));
-    end NordschleifeLap;
+        Documentation(info="<html><p>One flying lap of a planar circuit centerline
+(OSM data - Nordschleife, Ring Knutstorp, Anderstorp, Gelleråsen Arena, Kinnekulle
+Ring; see <code>tracks/fetch_track.py</code>). The driver tracks the quasi-steady
+minimum-time speed profile computed for exactly this vehicle setup (mass, power,
+grip, drag), so the lap time is the minimum <i>he</i> can manage on the centerline.
+The simulation terminates when s reaches <code>sLap</code>. Run via
+<code>track_lap.py --track=&lt;key&gt;</code>, which writes the track/speed-profile
+table and overrides <code>sLap</code>/<code>u0</code> per track.</p></html>"));
+    end TrackLap;
   end Examples;
 
   package Track
@@ -653,7 +655,7 @@ time plus the small correction for the rolling start. Run via
       "Tricycle in track coordinates (s,n,dpsi) with a longitudinal DOF: RWD, power- and friction-ellipse-limited drive/brake, brush tires, tie-rod loads"
       // Track coordinates: s along the centerline, n leftward lateral offset,
       // dpsi = vehicle heading - centerline heading. kappa > 0 = left curve.
-      parameter String fileName = "build/ns_track.txt"
+      parameter String fileName = "build/track.txt"
         "Track table file: columns s [m], kappa [1/m], vRef [m/s], axFF [m/s2]";
       parameter Modelica.Units.SI.Velocity u0 = 30 "Initial (rolling-start) speed";
       // chassis (identical defaults to PlanarTricycle)
@@ -822,7 +824,7 @@ first-order road-wheel lag.</p></html>"));
 
     block TrackDriver
       "Preview driver for a closed track: curvature feedforward + offset feedback steering, and speed control tracking a precomputed minimum-time profile vRef(s)"
-      parameter String fileName = "build/ns_track.txt"
+      parameter String fileName = "build/track.txt"
         "Track table file: columns s, kappa, vRef, axFF";
       parameter Modelica.Units.SI.Length Lwb = 2.80 "Wheelbase (steer feedforward)";
       parameter Real Kus(unit="rad.s2/m") = 1.63e-3

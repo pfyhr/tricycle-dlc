@@ -1,13 +1,13 @@
-"""Minimum-manageable-time lap of the planar Nordschleife with the power- and
+"""Minimum-manageable-time lap of a planar OSM circuit with the power- and
 grip-limited tricycle: generate the track + speed-profile table for the vehicle setup,
-run Tricycle.Examples.NordschleifeLap, and produce the lap figures (track map colored
+run Tricycle.Examples.TrackLap, and produce the lap figures (track map colored
 by speed, speed trace vs reference, g-g diagram, tie-rod forces) plus
-outputs/ns_lap_summary.csv. The result CSV is kept in modelica/build/nslap_res.csv
-for track_render.py (chase-camera viewer).
+outputs/<track>_lap_summary.csv. The result CSV is kept in
+modelica/build/<track>_lap_res.csv for track_render.py (chase-camera viewer).
 
-Run:  python3 track_lap.py
+Run:  python3 track_lap.py [--track=nordschleife|knutstorp|anderstorp|gelleras|kinnekulle]
 """
-import os, shutil, subprocess, sys
+import argparse, os, shutil, subprocess, sys
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -17,6 +17,13 @@ from matplotlib.collections import LineCollection
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'tracks'))
 from speed_profile import load_centerline, speed_profile, write_track_table
+from fetch_track import TRACKS
+
+ap = argparse.ArgumentParser()
+ap.add_argument('--track', default='nordschleife', choices=list(TRACKS))
+TRACK = ap.parse_args().track
+CFG = TRACKS[TRACK]
+PFX, DISPLAY = CFG['prefix'], CFG['display']
 
 OMC = shutil.which('omc') or '/Users/pontus/opt/openmodelica/bin/omc'
 os.environ.setdefault('OPENMODELICAHOME',
@@ -33,23 +40,24 @@ LAP_VARS = ('time|s|n|vKmh|vRefKmh|ayG|axG|deltaDeg|dpsiDeg|yawRateDegS|betaDeg|
             'FtieL|FtieR|FxR|Pdrive|FzFL|FzFR')
 
 # ---- 1. track table (geometry + minimum-time speed profile for this setup) --------
-s, x, y, psi, kap = load_centerline(os.path.join(HERE, 'tracks/nordschleife.csv'))
+s, x, y, psi, kap = load_centerline(os.path.join(HERE, f'tracks/{TRACK}.csv'))
 vRef, axFF = speed_profile(s, kap, **SETUP)
-LTRK = write_track_table(os.path.join(MOD, 'build/ns_track.txt'), s, kap, vRef, axFF)
+LTRK = write_track_table(os.path.join(MOD, 'build/track.txt'), s, kap, vRef, axFF)
 ds = s[1] - s[0]
 tIdeal = np.sum(ds/vRef)
-print(f'track L = {LTRK:.0f} m; quasi-steady ideal lap '
+print(f'{DISPLAY}: L = {LTRK:.0f} m; quasi-steady ideal lap '
       f'{int(tIdeal//60)}:{tIdeal % 60:04.1f} (driver will be a bit slower)')
 
 # ---- 2. simulate -------------------------------------------------------------------
 mos = (f'loadModel(Modelica); loadFile("Tricycle.mo");\n'
-       f'simulate(Tricycle.Examples.NordschleifeLap, stopTime=900, '
+       f'simulate(Tricycle.Examples.TrackLap, stopTime=900, '
        f'numberOfIntervals=18000, outputFormat="csv", variableFilter="{LAP_VARS}", '
-       f'fileNamePrefix="build/nslap"); getErrorString();\n')
+       f'fileNamePrefix="build/{PFX}_lap", '
+       f'simflags="-override sLap={LTRK:.1f},u0={vRef[0]:.2f}"); getErrorString();\n')
 open('/tmp/trike_nslap.mos', 'w').write(mos)
 r = subprocess.run([OMC, '/tmp/trike_nslap.mos'], cwd=MOD, check=True,
                    capture_output=True, text=True)
-RES = os.path.join(MOD, 'build/nslap_res.csv')
+RES = os.path.join(MOD, f'build/{PFX}_lap_res.csv')
 if not os.path.exists(RES):
     sys.exit('simulation produced no result file:\n' + r.stdout[-2000:])
 d = np.genfromtxt(RES, delimiter=',', names=True)
@@ -75,8 +83,9 @@ xCar = np.interp(sMod, sq, per(x)) - d['n']*np.sin(np.interp(sMod, sq, psiU))
 yCar = np.interp(sMod, sq, per(y)) + d['n']*np.cos(np.interp(sMod, sq, psiU))
 
 # ---- 3. summary CSV ----------------------------------------------------------------
-with open(os.path.join(HERE, 'outputs/ns_lap_summary.csv'), 'w') as f:
+with open(os.path.join(HERE, f'outputs/{PFX}_lap_summary.csv'), 'w') as f:
     f.write('quantity,value,unit\n')
+    f.write(f'track,{DISPLAY},-\n')
     f.write(f'lap_time,{tLap:.1f},s\n')
     f.write(f'track_length,{LTRK:.1f},m\n')
     f.write(f'ideal_quasi_steady_lap,{tIdeal:.1f},s\n')
@@ -95,16 +104,16 @@ segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
 lc = LineCollection(segs, cmap='viridis', array=d['vKmh'][:-1], lw=2.2)
 a.add_collection(lc)
 a.plot(xCar[0], yCar[0], 'o', color='tab:red', ms=6, zorder=5)
-a.annotate('start (Döttinger Höhe)', (xCar[0], yCar[0]), textcoords='offset points',
+a.annotate('start/finish', (xCar[0], yCar[0]), textcoords='offset points',
            xytext=(8, 6), fontsize=8)
 cb = fig.colorbar(lc, ax=a, shrink=0.8); cb.set_label('speed [km/h]')
 a.set_xlim(xCar.min() - 200, xCar.max() + 200)
 a.set_ylim(yCar.min() - 200, yCar.max() + 200)
 a.set_aspect('equal'); a.grid(alpha=.3)
 a.set_xlabel('x [m]'); a.set_ylabel('y [m]')
-a.set_title(f'Nordschleife (planar, OSM centerline) — lap {int(tLap//60)}:{tLap % 60:04.1f} '
+a.set_title(f'{DISPLAY} (planar, OSM centerline) — lap {int(tLap//60)}:{tLap % 60:04.1f} '
             f'at {SETUP["Pmax"]/1e3:.0f} kW / {SETUP["m"]:.0f} kg')
-plt.tight_layout(); plt.savefig(f'{SVG}/ns_map.svg', facecolor='white'); plt.close()
+plt.tight_layout(); plt.savefig(f'{SVG}/{PFX}_map.svg', facecolor='white'); plt.close()
 
 # ---- 5. speed trace vs reference + lateral offset ---------------------------------
 fig, ax = plt.subplots(2, 1, figsize=(10, 6), sharex=True,
@@ -118,7 +127,7 @@ ax[1].plot(d['s']/1000, d['n'], color='tab:red', lw=1)
 ax[1].axhline(0, color='k', lw=.6)
 ax[1].set_ylabel('offset n [m]'); ax[1].set_xlabel('distance s [km]')
 ax[1].grid(alpha=.3)
-plt.tight_layout(); plt.savefig(f'{SVG}/ns_speed.svg', facecolor='white'); plt.close()
+plt.tight_layout(); plt.savefig(f'{SVG}/{PFX}_speed.svg', facecolor='white'); plt.close()
 
 # ---- 6. g-g diagram ----------------------------------------------------------------
 fig, a = plt.subplots(figsize=(5.6, 5.6))
@@ -129,7 +138,7 @@ a.plot(0.855*np.cos(th), 0.855*np.sin(th), 'k--', lw=0.8,
 a.set_xlabel('lateral acceleration [g]'); a.set_ylabel('longitudinal acceleration [g]')
 a.set_aspect('equal'); a.grid(alpha=.3); a.legend(fontsize=8, loc='upper right')
 a.set_title('g-g diagram over the lap (color: speed)')
-plt.tight_layout(); plt.savefig(f'{SVG}/ns_gg.svg', facecolor='white'); plt.close()
+plt.tight_layout(); plt.savefig(f'{SVG}/{PFX}_gg.svg', facecolor='white'); plt.close()
 
 # ---- 7. tie-rod forces over the lap ------------------------------------------------
 fig, a = plt.subplots(figsize=(10, 4))
@@ -137,8 +146,8 @@ a.plot(d['s']/1000, d['FtieL']/1000, color='tab:green', lw=0.9, label='tie rod l
 a.plot(d['s']/1000, d['FtieR']/1000, color='tab:red', lw=0.9, alpha=0.8, label='tie rod right')
 a.set_xlabel('distance s [km]'); a.set_ylabel('tie-rod force [kN]')
 a.grid(alpha=.3); a.legend(fontsize=8)
-a.set_title('steering-link loads over one Nordschleife lap')
-plt.tight_layout(); plt.savefig(f'{SVG}/ns_tierod.svg', facecolor='white'); plt.close()
+a.set_title(f'steering-link loads over one {DISPLAY} lap')
+plt.tight_layout(); plt.savefig(f'{SVG}/{PFX}_tierod.svg', facecolor='white'); plt.close()
 
-print('wrote outputs/ns_lap_summary.csv and 4 SVGs to outputs/svg/')
-print('renderer: python3 track_render.py  (uses modelica/build/nslap_res.csv)')
+print(f'wrote outputs/{PFX}_lap_summary.csv and 4 SVGs to outputs/svg/')
+print(f'renderer: python3 track_render.py --track={TRACK}')

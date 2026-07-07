@@ -1,0 +1,12 @@
+quantity,value,unit
+track,Gelleråsen Arena,-
+lap_time,100.4,s
+track_length,2330.0,m
+ideal_quasi_steady_lap,98.3,s
+v_max,155.5,km/h
+v_min,39.7,km/h
+abs_n_max,3.82,m
+ay_peak,0.90,g
+brake_peak,0.79,g
+tie_rod_peak,1829,N
+drive_power_peak,150,kW
