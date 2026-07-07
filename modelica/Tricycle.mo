@@ -15,7 +15,7 @@ package Tricycle
       "Contact-patch half length at FzNom (pneumatic trail at zero slip = ap0/3)";
     Modelica.Units.SI.Force FzNom = 4000 "Nominal load for patch-length scaling";
     Modelica.Units.SI.Length sigmaRel = 0.5
-      "Relaxation length (first-order transient force lag)";
+      "Relaxation length (first-order transient slip-angle lag)";
     annotation (Documentation(info="<html><p>Parameters of the single-friction
 <b>brush</b> tire (Pacejka, <i>Tire and Vehicle Dynamics</i>, 3rd ed., Ch. 3). The
 cornering stiffness uses the standard degressive load law
@@ -190,13 +190,13 @@ smoothly clamped at <code>dMax</code>.</p></html>"));
     Modelica.Units.SI.Position Y(start=0, fixed=true) "Global y position";
     Modelica.Units.SI.Force dFz(start=0, fixed=true)
       "Front lateral load transfer (roll-lagged)";
-    // tire states: relaxation-lagged forces and aligning moments
-    Modelica.Units.SI.Force FyFL(start=0, fixed=true);
-    Modelica.Units.SI.Force FyFR(start=0, fixed=true);
-    Modelica.Units.SI.Force FyR(start=0, fixed=true);
-    Modelica.Units.SI.Torque MzFL(start=0, fixed=true);
-    Modelica.Units.SI.Torque MzFR(start=0, fixed=true);
-    Modelica.Units.SI.Torque MzR(start=0, fixed=true);
+    // tire states: relaxation-lagged slip angles (one per tire; Fy and Mz are the
+    // steady-state brush outputs at the lagged angle, so they stay mutually consistent)
+    Modelica.Units.SI.Angle aLagFL(start=0, fixed=true) "Front-left lagged slip angle";
+    Modelica.Units.SI.Angle aLagFR(start=0, fixed=true) "Front-right lagged slip angle";
+    Modelica.Units.SI.Angle aLagR(start=0, fixed=true) "Rear lagged slip angle";
+    Modelica.Units.SI.Force FyFL, FyFR, FyR;
+    Modelica.Units.SI.Torque MzFL, MzFR, MzR;
     // kinematics and loads
     Modelica.Units.SI.Angle dL "Left road-wheel steer angle";
     Modelica.Units.SI.Angle dR "Right road-wheel steer angle";
@@ -205,8 +205,7 @@ smoothly clamped at <code>dMax</code>.</p></html>"));
     Modelica.Units.SI.Angle aR "Rear slip angle";
     Modelica.Units.SI.Force FzFL, FzFR, FzR;
     Modelica.Units.SI.Acceleration ay "Lateral acceleration (= der(vy) + u*r)";
-    Modelica.Units.SI.Force FySSFL, FySSFR, FySSR;
-    Modelica.Units.SI.Torque MzSSFL, MzSSFR, MzSSR;
+    Modelica.Units.SI.Force FyF "Front-axle lateral force in the body frame (both wheels)";
     // kingpin / tie-rod
     Modelica.Units.SI.Torque MkpL "Left kingpin moment resisting steer";
     Modelica.Units.SI.Torque MkpR "Right kingpin moment resisting steer";
@@ -222,6 +221,10 @@ smoothly clamped at <code>dMax</code>.</p></html>"));
     final parameter Modelica.Units.SI.Length L = a + b;
     final parameter Modelica.Units.SI.Force Fz0F = m*g*b/(2*L);
     final parameter Modelica.Units.SI.Force Fz0R = m*g*a/L;
+    // u is constant, so the low-speed guard and relaxation time constants are parameters
+    final parameter Modelica.Units.SI.Velocity uGuard = max(u, uMin);
+    final parameter Modelica.Units.SI.Time tauF = tireF.sigmaRel/uGuard;
+    final parameter Modelica.Units.SI.Time tauR = tireR.sigmaRel/uGuard;
   equation
     s = rack.s;
     v = der(s);
@@ -231,26 +234,24 @@ smoothly clamped at <code>dMax</code>.</p></html>"));
     // per-wheel slip angles (individual front wheels: the tricycle content)
     aFL = dL - atan((vy + a*r)/noEvent(max(u - r*tf/2, uMin)));
     aFR = dR - atan((vy + a*r)/noEvent(max(u + r*tf/2, uMin)));
-    aR  =    - atan((vy - b*r)/noEvent(max(u, uMin)));
+    aR  =    - atan((vy - b*r)/uGuard);
     // quasi-static front load transfer, lagged with the roll mode (breaks the Fz<->Fy loop)
-    ay = (FyFL*cos(dL) + FyFR*cos(dR) + FyR)/m;
     tauRoll*der(dFz) + dFz = xiF*m*ay*hcg/tf;
     FzFL = Fz0F - dFz;
     FzFR = Fz0F + dFz;
     FzR  = Fz0R;
-    // brush tires with first-order relaxation (sigma/u lag on force and moment)
-    (FySSFL, MzSSFL) = brushForces(aFL, FzFL, tireF);
-    (FySSFR, MzSSFR) = brushForces(aFR, FzFR, tireF);
-    (FySSR,  MzSSR)  = brushForces(aR, FzR, tireR);
-    (tireF.sigmaRel/noEvent(max(u, uMin)))*der(FyFL) + FyFL = FySSFL;
-    (tireF.sigmaRel/noEvent(max(u, uMin)))*der(FyFR) + FyFR = FySSFR;
-    (tireR.sigmaRel/noEvent(max(u, uMin)))*der(FyR)  + FyR  = FySSR;
-    (tireF.sigmaRel/noEvent(max(u, uMin)))*der(MzFL) + MzFL = MzSSFL;
-    (tireF.sigmaRel/noEvent(max(u, uMin)))*der(MzFR) + MzFR = MzSSFR;
-    (tireR.sigmaRel/noEvent(max(u, uMin)))*der(MzR)  + MzR  = MzSSR;
+    // brush tires with first-order relaxation (sigma/u lag on the slip angle)
+    tauF*der(aLagFL) + aLagFL = aFL;
+    tauF*der(aLagFR) + aLagFR = aFR;
+    tauR*der(aLagR)  + aLagR  = aR;
+    (FyFL, MzFL) = brushForces(aLagFL, FzFL, tireF);
+    (FyFR, MzFR) = brushForces(aLagFR, FzFR, tireF);
+    (FyR,  MzR)  = brushForces(aLagR,  FzR,  tireR);
     // planar chassis: lateral + yaw at constant forward speed, plus path kinematics
-    m*(der(vy) + u*r) = FyFL*cos(dL) + FyFR*cos(dR) + FyR;
-    Izz*der(r) = a*(FyFL*cos(dL) + FyFR*cos(dR)) - b*FyR
+    FyF = FyFL*cos(dL) + FyFR*cos(dR);
+    m*ay = FyF + FyR;
+    der(vy) = ay - u*r;
+    Izz*der(r) = a*FyF - b*FyR
                + (tf/2)*(FyFL*sin(dL) - FyFR*sin(dR))
                + MzFL + MzFR + MzR;
     der(psi) = r;
