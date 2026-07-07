@@ -228,6 +228,36 @@ for key, lmin, lmax in TRACK_CASES:
           np.abs(nl['FtieL']).max(), np.abs(nl['FtieR']).max()) < 4000,
           f"{max(np.abs(nl['FtieL']).max(), np.abs(nl['FtieR']).max()):.0f} N")
 
+# ---- 6. minimum-time optimal control (skipped if casadi is not installed) ----------
+try:
+    from opt_lap import solve_min_time
+    have_casadi = True
+except ImportError:
+    have_casadi = False
+    print('[skip] OCP tests (casadi not installed)')
+if have_casadi:
+    key = 'knutstorp'
+    sT, xT, yT, psiT, kapT = load_centerline(
+        os.path.join(os.path.dirname(HERE), 'tracks', f'{key}.csv'))
+    dsc = sT[1] - sT[0]
+    wMax = TRACKS[key]['width']/2 - CAR_HALF - EDGE_MARGIN
+    nMC, psiMC, kapMC, dsMC = min_curvature_line(xT, yT, psiT, kapT, dsc, wMax)
+    vMC, _ = speed_profile(sT, kapMC, ds_seg=dsMC)
+    nOpt, ocp = solve_min_time(sT, kapT, wMax - 0.5, grip_frac=0.90, v_init=vMC,
+                               n_init=nMC, dpsi_init=psiMC)
+    check('OCP solve converges (KKT / IPOPT)', ocp['converged'],
+          f"T_opt {ocp['T']:.1f} s")
+    check('OCP line stays inside the corridor',
+          np.abs(nOpt).max() <= wMax - 0.5 + 1e-3,
+          f'|n_opt|max {np.abs(nOpt).max():.2f} of {wMax - 0.5:.2f} m')
+    # the min-time bound must be a true lower bound: below the quasi-steady ideal
+    vC, _ = speed_profile(sT, kapT)
+    check('OCP min-time is a lower bound on the centerline ideal',
+          ocp['T'] < np.sum(dsc/vC), f"{ocp['T']:.1f} s vs {np.sum(dsc/vC):.1f} s")
+    check('OCP optimal speed is physical (30-200 km/h)',
+          30 < 3.6*ocp['v'].min() and 3.6*ocp['v'].max() < 200,
+          f"{3.6*ocp['v'].min():.0f}-{3.6*ocp['v'].max():.0f} km/h")
+
 # ---- summary -----------------------------------------------------------------------
 print()
 if failures:

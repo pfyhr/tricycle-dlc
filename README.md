@@ -110,35 +110,49 @@ the closed circuit loop). Vehicle setup is sweepable: `track_lap.py` mirrors the
 `Tricycle.Track.TrackTricycle` defaults, and per-run overrides pass straight through
 to `simulate(..., simflags="-override Pmax=...")`.
 
-### How optimal is it?
+### How optimal is it? (`--line=ocp`)
 
-The lap here is **not provably optimal**, and it is worth being precise about the gap.
-The path is the minimum-*curvature* line for the track corridor, and the speed is a
-quasi-steady forward/backward profile *on that fixed path*. Two approximations separate
-this from a true minimum-time lap:
+The default racing line is the minimum-*curvature* line — a good, standard geometric
+approximation, but not a minimum-*time* one. For a **provably (locally) optimal** lap,
+`track_lap.py --track=<key> --line=ocp` solves the minimum-time optimal-control problem
+directly (`tracks/racing_line.py` warm-starts it; `tracks/opt_lap.py` is the OCP):
 
-1. **Path vs. speed are decoupled.** The genuine racing line trades a little extra
-   curvature for a shorter path or a better corner-exit onto a straight — a
-   compromise that depends on the power/grip budget. Minimum-curvature ignores that
-   coupling (it is purely geometric), so it is a good, standard *approximation* of the
-   min-time line, not the line itself.
-2. **The speed profile is quasi-steady.** Forward/backward integration assumes the car
-   is always on a steady g-g boundary; it has no transient tyre-lag or load-transfer
-   dynamics, which the actual simulated vehicle does have (hence the driver runs ~2 %
-   over the profile's own ideal).
+- minimize ∫dt over the states (offset, heading, speed) and controls (tangential /
+  lateral acceleration), in the arc-length domain around the loop;
+- subject to the curvilinear vehicle kinematics, the **friction circle** and
+  **engine-power** limit (the same μ, power, drag and mass as the plant), and the
+  track corridor;
+- transcribed by direct collocation into one nonlinear program and solved with
+  [CasADi](https://web.casadi.org/) + IPOPT. The solver's satisfaction of the
+  Karush–Kuhn–Tucker conditions is the certificate of **local** optimality (a
+  nonconvex problem — global optimality is not practically certifiable).
 
-A **provably minimum-time** lap means solving the optimal-control problem directly:
-minimize ∫dt subject to the vehicle ODEs and the track-corridor constraints, discretised
-(direct collocation) into one large nonlinear program and solved to its
-Karush-Kuhn-Tucker optimality conditions — the standard tool is
-[CasADi](https://web.casadi.org/) + IPOPT (see Christ/Heilmeier or the OpenRace / TUMFTM
-`global_racetrajectory_optimization` codebases). That yields the optimal path **and**
-speed together over the real dynamics, with the solver's stationarity as the proof of
-(local) optimality. It is a much heavier tool — a nonlinear solver dependency and a
-model transcription — and is out of scope for this repo's "minimal, defensible"
-philosophy, but the `Tricycle.Track` model (states, forces, and limits already in
-Frenet form) is exactly the plant such an OCP would wrap. See the model's issue tracker
-for the sketch.
+Two honest caveats on "provable":
+
+1. **It is optimal for a reduced model.** The OCP uses a friction-circle *point mass*
+   (the robust, standard lap-time formulation); it omits the yaw/sideslip dynamics,
+   tyre relaxation and load transfer that the full Modelica `TrackTricycle` has. So
+   `T_opt` is a provable lower bound *for that model* — and those omitted dynamics are
+   exactly what the full plant adds back when it then **drives** the optimal line
+   (the OCP chooses the line; OpenModelica simulates the real car tracking it). The
+   optimal offsets are lightly smoothed so the lag-limited car can follow them without
+   running off the corridor.
+2. **Local, not global.** IPOPT certifies a KKT point, not the absence of a better lap
+   in a different basin.
+
+Result: the OCP line is the fastest tracked lap on every circuit, and `T_opt` measures
+the headroom to the theoretical optimum:
+
+| Track | Min-curvature | OCP-tracked (full model) | OCP bound (point mass) |
+|---|--:|--:|--:|
+| Nordschleife | 10:38.1 | **10:27.0** | 8:50.4 |
+| Anderstorp | 2:15.7 | **2:13.5** | 2:01.6 |
+| Gelleråsen | 1:36.2 | **1:33.9** | 1:21.4 |
+| Knutstorp | 1:29.5 | **1:27.4** | 1:15.8 |
+| Kinnekulle | 1:15.3 | **1:15.7** | 1:07.1 |
+
+The OCP needs CasADi (`pip install casadi`, bundles IPOPT); `--line=optimal`
+(min-curvature) remains the dependency-free default.
 
 ## Run
 

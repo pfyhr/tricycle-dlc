@@ -22,8 +22,9 @@ from fetch_track import TRACKS
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--track', default='nordschleife', choices=list(TRACKS))
-ap.add_argument('--line', default='optimal', choices=['optimal', 'center'],
-                help='racing line (minimum-curvature) or centerline following')
+ap.add_argument('--line', default='optimal', choices=['optimal', 'center', 'ocp'],
+                help='minimum-curvature racing line (optimal), centerline following '
+                     '(center), or provably min-time optimal control (ocp; needs casadi)')
 ap.add_argument('--width', type=float, default=None,
                 help='track width [m] override (default: per-track value)')
 args = ap.parse_args()
@@ -53,9 +54,38 @@ ds = s[1] - s[0]
 width = args.width if args.width is not None else CFG.get('width', 10.0)
 wMax = max(0.0, width/2 - CAR_HALF - EDGE_MARGIN)
 
-if LINE == 'optimal' and wMax > 0.3:
+tOcp = None
+if LINE in ('optimal', 'ocp') and wMax > 0.3:
+    # minimum-curvature line first (both the 'optimal' answer and the OCP warm start)
     nRef, psiRef, kapLine, dsSeg = min_curvature_line(x, y, psi, kap, ds, wMax)
-    tag = f'racing line, corridor +/-{wMax:.1f} m'
+    if LINE == 'ocp':
+        from opt_lap import solve_min_time
+        from racing_line import offset_geometry, _gauss_periodic
+        vMC, _ = speed_profile(s, kapLine, ds_seg=dsSeg, **SETUP)
+        # leave a margin inside the physical corridor for the tracking overshoot,
+        # so the real car's line stays on the asphalt
+        wOcp = max(0.3, wMax - 0.5)
+        # solve on a coarser grid (~<=1000 nodes) for tractability on long tracks,
+        # then interpolate the optimal offset back to the full centerline grid
+        stride = max(1, int(np.ceil(len(s)/1000)))
+        sc, kc = s[::stride], kap[::stride]
+        print(f'{DISPLAY}: solving minimum-time OCP ({len(sc)} nodes'
+              f'{f" (every {stride}th of {len(s)})" if stride > 1 else ""}, '
+              f'corridor +/-{wOcp:.1f} m)...')
+        nOpt_c, ocp = solve_min_time(sc, kc, wOcp, grip_frac=SETUP['ayFrac'],
+                                     v_init=vMC[::stride], n_init=nRef[::stride],
+                                     dpsi_init=psiRef[::stride])
+        tOcp = ocp['T']
+        print(f'  IPOPT {"converged" if ocp["converged"] else "did NOT converge"}: '
+              f'T_opt = {int(tOcp//60)}:{tOcp % 60:04.1f} '
+              f'(provable min-time for the point-mass model)')
+        Lc = sc[-1] + (sc[1] - sc[0])
+        nRef = np.interp(s, np.append(sc, Lc), np.append(nOpt_c, nOpt_c[0]))
+        # smooth the optimal offsets so the lag-limited real driver can track the line
+        # without overshooting the corridor (min-time lines are near-bang-bang)
+        nRef = np.clip(_gauss_periodic(nRef, ds, 10.0), -wMax, wMax)
+        psiRef, kapLine, dsSeg = offset_geometry(x, y, psi, ds, nRef)
+    tag = f'{"OCP min-time" if LINE == "ocp" else "min-curvature"} line, corridor +/-{wMax:.1f} m'
 else:
     nRef = psiRef = None
     kapLine, dsSeg = kap, None
@@ -114,6 +144,8 @@ with open(os.path.join(HERE, f'outputs/{PFX}_lap_summary.csv'), 'w') as f:
     f.write('quantity,value,unit\n')
     f.write(f'track,{DISPLAY},-\n')
     f.write(f'line,{LINE},-\n')
+    if tOcp is not None:
+        f.write(f'ocp_min_time_lower_bound,{tOcp:.1f},s\n')
     f.write(f'lap_time,{tLap:.1f},s\n')
     f.write(f'track_length,{LTRK:.1f},m\n')
     f.write(f'path_length,{pathLen:.1f},m\n')
@@ -137,8 +169,10 @@ a.plot(np.append(x, x[0]), np.append(y, y[0]), color='0.55', lw=0.7, ls=(0, (6, 
        label='centerline')
 pts = np.column_stack([xCar, yCar]).reshape(-1, 1, 2)
 segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
+LINE_LABEL = {'optimal': 'min-curvature line', 'ocp': 'min-time (OCP) line',
+              'center': 'centerline follow'}[LINE]
 lc = LineCollection(segs, cmap='viridis', array=d['vKmh'][:-1], lw=2.2,
-                    label='racing line' if LINE == 'optimal' else 'centerline follow')
+                    label=LINE_LABEL)
 a.add_collection(lc)
 a.plot(xCar[0], yCar[0], 'o', color='tab:red', ms=6, zorder=5)
 a.annotate('start/finish', (xCar[0], yCar[0]), textcoords='offset points',
@@ -148,9 +182,9 @@ a.set_xlim(xCar.min() - 200, xCar.max() + 200)
 a.set_ylim(yCar.min() - 200, yCar.max() + 200)
 a.set_aspect('equal'); a.grid(alpha=.3); a.legend(loc='best', fontsize=8)
 a.set_xlabel('x [m]'); a.set_ylabel('y [m]')
-lineLabel = f'{LINE} line' if LINE == 'center' else 'min-curvature racing line'
-a.set_title(f'{DISPLAY} (planar, OSM) — {lineLabel} — lap {int(tLap//60)}:{tLap % 60:04.1f} '
-            f'at {SETUP["Pmax"]/1e3:.0f} kW / {SETUP["m"]:.0f} kg')
+tag_ocp = f' (OCP bound {int(tOcp//60)}:{tOcp % 60:04.1f})' if tOcp is not None else ''
+a.set_title(f'{DISPLAY} (planar, OSM) — {LINE_LABEL} — lap {int(tLap//60)}:{tLap % 60:04.1f}'
+            f'{tag_ocp} at {SETUP["Pmax"]/1e3:.0f} kW / {SETUP["m"]:.0f} kg')
 plt.tight_layout(); plt.savefig(f'{SVG}/{PFX}_map.svg', facecolor='white'); plt.close()
 
 # ---- 5. speed trace vs reference + lateral offset ---------------------------------

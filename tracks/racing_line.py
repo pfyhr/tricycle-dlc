@@ -64,8 +64,14 @@ def min_curvature_line(x, y, psi, kappa_c, ds, w_max, alpha=3e-6, smooth=10.0):
     peak = np.abs(w).max()
     if peak > w_max:
         w *= w_max/peak
+    dpsi_ref, kappa_line, ds_seg = offset_geometry(x, y, psi, ds, w)
+    return w, dpsi_ref, kappa_line, ds_seg
 
-    # exact geometry of the offset path (derivatives wrt centerline arc length)
+
+def offset_geometry(x, y, psi, ds, w):
+    """Exact heading (vs centerline), curvature and per-segment length of the path
+    offset laterally by w(s) from the centerline. Shared by the minimum-curvature
+    line and the optimal-control line so both feed the driver the same way."""
     nx, ny = -np.sin(psi), np.cos(psi)
     xl = x + w*nx
     yl = y + w*ny
@@ -77,4 +83,4 @@ def min_curvature_line(x, y, psi, kappa_c, ds, w_max, alpha=3e-6, smooth=10.0):
     psi_line = np.unwrap(np.arctan2(yp, xp))
     dpsi_ref = np.arctan2(np.sin(psi_line - psi), np.cos(psi_line - psi))
     ds_seg = np.hypot(np.roll(xl, -1) - xl, np.roll(yl, -1) - yl)
-    return w, dpsi_ref, kappa_line, ds_seg
+    return dpsi_ref, kappa_line, ds_seg
