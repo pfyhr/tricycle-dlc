@@ -34,7 +34,7 @@ PARAMS = dict(m=1650.0, mu=0.95, Pmax=150e3, CdA=0.72, Crr=0.012, rho=1.20,
 
 
 def solve_min_time(s, kappa, w_max, p=PARAMS, grip_frac=0.90, v_init=None, n_init=None,
-                   dpsi_init=None, w_reg=1e-3, max_iter=3000, verbose=False):
+                   dpsi_init=None, w_reg=1e-3, w_curv=3125.0, max_iter=3000, verbose=False):
     """Return (n_opt, info): the optimal lateral offset on the s-grid, and info with
     the optimal lap time T and the optimal speed/acceleration trajectories. Warm-start
     with n_init / v_init (e.g. the minimum-curvature line and its speed profile).
@@ -81,8 +81,18 @@ def solve_min_time(s, kappa, w_max, p=PARAMS, grip_frac=0.90, v_init=None, n_ini
         opti.subject_to(Ft**2 + Fn**2 <= Flim**2)       # friction circle
         opti.subject_to(Ft*v[k] <= p['Pmax'])           # engine power
     roll = list(range(1, N)) + [0]
+    back = [N - 1] + list(range(0, N - 1))
     dU = Us[:, roll] - Us
-    opti.minimize(T + w_reg*(ca.sumsqr(dU[0, :]) + ca.sumsqr(dU[1, :])))
+    # penalise the path's second difference (its curvature) so the min-time optimum is
+    # smooth and drivable rather than jagged/bang-bang: a small blended min-curvature
+    # term, plus it suppresses the odd-even ringing mode of trapezoidal collocation.
+    # Normalise by ds^3 so the penalty approximates the grid-independent functional
+    # int (n'')^2 ds  (d2n ~ n''*ds^2); otherwise a coarse grid over-penalises and
+    # flattens the racing line toward the centerline (e.g. the 25 m Nordschleife grid).
+    nsc = Xs[0, :]
+    d2n = nsc[roll] - 2*nsc + nsc[back]
+    opti.minimize(T + w_reg*(ca.sumsqr(dU[0, :]) + ca.sumsqr(dU[1, :]))
+                  + (w_curv/ds**3)*ca.sumsqr(d2n))
 
     opti.subject_to(opti.bounded(-w_max/SC[0], Xs[0, :], w_max/SC[0]))
     opti.subject_to(opti.bounded(-0.7/SC[1], Xs[1, :], 0.7/SC[1]))

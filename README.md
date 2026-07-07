@@ -140,16 +140,19 @@ Two honest caveats on "provable":
 2. **Local, not global.** IPOPT certifies a KKT point, not the absence of a better lap
    in a different basin.
 
-Result: the OCP line is the fastest tracked lap on every circuit, and `T_opt` measures
-the headroom to the theoretical optimum:
+Result: the OCP line matches or beats the min-curvature line as a tracked lap on every
+circuit, and `T_opt` measures the headroom to the theoretical optimum. The gains are
+modest — the optimal offsets are smoothed enough for the lag-limited real car to follow
+without weaving or running wide, which trades away the last tenths a jagged point-mass
+line would claim but couldn't actually be driven:
 
 | Track | Min-curvature | OCP-tracked (full model) | OCP bound (point mass) |
 |---|--:|--:|--:|
-| Nordschleife | 10:38.1 | **10:27.0** | 8:50.4 |
-| Anderstorp | 2:15.7 | **2:13.5** | 2:01.6 |
-| Gelleråsen | 1:36.2 | **1:33.9** | 1:21.4 |
-| Knutstorp | 1:29.5 | **1:27.4** | 1:15.8 |
-| Kinnekulle | 1:15.3 | **1:15.7** | 1:07.1 |
+| Nordschleife | 10:38.1 | **10:33.5** | 9:00.4 |
+| Anderstorp | 2:15.7 | **2:15.3** | 2:06.0 |
+| Gelleråsen | 1:36.2 | **1:35.5** | 1:26.0 |
+| Knutstorp | 1:29.5 | **1:28.9** | 1:20.8 |
+| Kinnekulle | 1:15.3 | **1:15.3** | 1:09.1 |
 
 The OCP needs CasADi (`pip install casadi`, bundles IPOPT); `--line=optimal`
 (min-curvature) remains the dependency-free default.

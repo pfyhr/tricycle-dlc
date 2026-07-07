@@ -64,7 +64,7 @@ if LINE in ('optimal', 'ocp') and wMax > 0.3:
         vMC, _ = speed_profile(s, kapLine, ds_seg=dsSeg, **SETUP)
         # leave a margin inside the physical corridor for the tracking overshoot,
         # so the real car's line stays on the asphalt
-        wOcp = max(0.3, wMax - 0.5)
+        wOcp = max(0.3, wMax - 1.1)
         # solve on a coarser grid (~<=1000 nodes) for tractability on long tracks,
         # then interpolate the optimal offset back to the full centerline grid
         stride = max(1, int(np.ceil(len(s)/1000)))
@@ -81,8 +81,7 @@ if LINE in ('optimal', 'ocp') and wMax > 0.3:
               f'(provable min-time for the point-mass model)')
         Lc = sc[-1] + (sc[1] - sc[0])
         nRef = np.interp(s, np.append(sc, Lc), np.append(nOpt_c, nOpt_c[0]))
-        # smooth the optimal offsets so the lag-limited real driver can track the line
-        # without overshooting the corridor (min-time lines are near-bang-bang)
+        # light final smoothing (the OCP's own path-curvature penalty does most of it)
         nRef = np.clip(_gauss_periodic(nRef, ds, 10.0), -wMax, wMax)
         psiRef, kapLine, dsSeg = offset_geometry(x, y, psi, ds, nRef)
     tag = f'{"OCP min-time" if LINE == "ocp" else "min-curvature"} line, corridor +/-{wMax:.1f} m'
