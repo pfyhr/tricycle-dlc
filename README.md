@@ -64,36 +64,44 @@ transfer. Centerlines come from OpenStreetMap (elevation dropped — planar by d
 © OpenStreetMap contributors, ODbL), smoothed and tabulated as κ(s) in
 `tracks/<key>.csv`.
 
-The driver drives *his* fastest lap for the given setup, not a formal optimum: a
-quasi-steady minimum-time speed profile v_ref(s) is precomputed for the exact vehicle
-parameters (corner-speed limit → power/traction-limited forward pass →
-braking-limited backward pass, `tracks/speed_profile.py`), and the two-channel
-`TrackDriver` tracks it — curvature feedforward + gain-scheduled offset feedback +
-yaw-rate-error damping for steering, and a preview-consistent constant-acceleration
-law for throttle/brake. He stays on the centerline instead of using the track width,
-so on tight hairpins he runs a metre or two wide — realistic for a line that ignores
-the racing groove.
+The driver follows a **racing line**, not the centerline. For a track corridor of
+half-width w (from the track width minus the car and a margin), the
+minimum-curvature line — the offset profile n_ref(s) that flattens the corners as
+much as the asphalt allows — is computed by a fast regularized solve
+(`tracks/racing_line.py`; Braghin et al. 2008, Heilmeier et al. 2020). The
+quasi-steady minimum-time speed profile v_ref(s) is then recomputed *on that faster
+line* (corner-speed limit → power/traction-limited forward pass → braking-limited
+backward pass), and the two-channel `TrackDriver` tracks it: line-curvature
+feedforward + gain-scheduled offset feedback (toward n_ref) + heading and yaw-rate
+damping for steering, and a preview-consistent constant-acceleration law for
+throttle/brake. Setting the corridor to zero recovers exact centerline following, so
+the same driver does both (`track_lap.py --line=center`).
 
-Lap times for the default setup (150 kW / 1650 kg / μ = 0.95):
+This is a genuine racing line — wide entry, apex, track-out — but the
+minimum-curvature line for a fixed corridor, *not* a provably minimum-time trajectory
+(see "How optimal is it?" below).
 
-| Track (`--track=`) | Length | Lap | Quasi-steady ideal | v_max |
+Lap times for the default setup (150 kW / 1650 kg / μ = 0.95), racing line vs.
+centerline following:
+
+| Track (`--track=`) | Length | Racing line | Centerline | v_max |
 |---|--:|--:|--:|--:|
-| `nordschleife` — Nürburgring Nordschleife | 20.72 km | **11:02.3** | 10:53.7 | 229 km/h |
-| `anderstorp` — Anderstorp Raceway | 4.01 km | **2:20.7** | 2:18.5 | 175 km/h |
-| `gelleras` — Gelleråsen Arena (Karlskoga) | 2.33 km | **1:40.4** | 1:38.3 | 156 km/h |
-| `knutstorp` — Ring Knutstorp | 2.06 km | **1:33.6** | 1:31.4 | 159 km/h |
-| `kinnekulle` — Kinnekulle Ring | 2.06 km | **1:19.2** | 1:17.9 | 153 km/h |
+| `nordschleife` — Nürburgring Nordschleife | 20.72 km | **10:38.1** | 11:02.3 | 230 km/h |
+| `anderstorp` — Anderstorp Raceway | 4.01 km | **2:15.7** | 2:20.7 | 178 km/h |
+| `gelleras` — Gelleråsen Arena (Karlskoga) | 2.33 km | **1:36.2** | 1:40.4 | 160 km/h |
+| `knutstorp` — Ring Knutstorp | 2.06 km | **1:29.5** | 1:33.6 | 160 km/h |
+| `kinnekulle` — Kinnekulle Ring | 2.06 km | **1:15.3** | 1:19.2 | 163 km/h |
 
-The lap is always within ~2 % of the quasi-steady ideal — the driver's overhead for
-steering the real line rather than sitting exactly on the profile.
+The racing line is 3.5–5 % quicker, and the car tracks it to within ~0.6 m rms.
 
-![Nordschleife map colored by speed](outputs/svg/ns_map.svg)
+![Nordschleife racing line colored by speed](outputs/svg/ns_map.svg)
 
 ```
-python3 tracks/fetch_track.py --track=all    # (re)build centerlines from OSM - needs network
-python3 track_lap.py    --track=knutstorp    # speed profile + lap sim + figures + summary CSV
-python3 track_render.py --track=knutstorp    # chase-camera HTML viewer (outputs/<key>_chase.html):
-                                             # GTA-style follow cam, minimap, speed/yaw/accel HUD
+python3 tracks/fetch_track.py --track=all         # (re)build centerlines from OSM - needs network
+python3 track_lap.py    --track=knutstorp         # racing line + speed profile + lap sim + figures
+python3 track_lap.py    --track=knutstorp --line=center   # centerline following, for comparison
+python3 track_render.py --track=knutstorp         # chase-camera HTML viewer (outputs/<key>_chase.html):
+                                                  # GTA-style follow cam, minimap, speed/yaw/accel HUD
 ```
 
 Adding a track is one entry in the `TRACKS` registry in `tracks/fetch_track.py`
@@ -101,6 +109,36 @@ Adding a track is one entry in the `TRACKS` registry in `tracks/fetch_track.py`
 the closed circuit loop). Vehicle setup is sweepable: `track_lap.py` mirrors the
 `Tricycle.Track.TrackTricycle` defaults, and per-run overrides pass straight through
 to `simulate(..., simflags="-override Pmax=...")`.
+
+### How optimal is it?
+
+The lap here is **not provably optimal**, and it is worth being precise about the gap.
+The path is the minimum-*curvature* line for the track corridor, and the speed is a
+quasi-steady forward/backward profile *on that fixed path*. Two approximations separate
+this from a true minimum-time lap:
+
+1. **Path vs. speed are decoupled.** The genuine racing line trades a little extra
+   curvature for a shorter path or a better corner-exit onto a straight — a
+   compromise that depends on the power/grip budget. Minimum-curvature ignores that
+   coupling (it is purely geometric), so it is a good, standard *approximation* of the
+   min-time line, not the line itself.
+2. **The speed profile is quasi-steady.** Forward/backward integration assumes the car
+   is always on a steady g-g boundary; it has no transient tyre-lag or load-transfer
+   dynamics, which the actual simulated vehicle does have (hence the driver runs ~2 %
+   over the profile's own ideal).
+
+A **provably minimum-time** lap means solving the optimal-control problem directly:
+minimize ∫dt subject to the vehicle ODEs and the track-corridor constraints, discretised
+(direct collocation) into one large nonlinear program and solved to its
+Karush-Kuhn-Tucker optimality conditions — the standard tool is
+[CasADi](https://web.casadi.org/) + IPOPT (see Christ/Heilmeier or the OpenRace / TUMFTM
+`global_racetrajectory_optimization` codebases). That yields the optimal path **and**
+speed together over the real dynamics, with the solver's stationarity as the proof of
+(local) optimality. It is a much heavier tool — a nonlinear solver dependency and a
+model transcription — and is out of scope for this repo's "minimal, defensible"
+philosophy, but the `Tricycle.Track` model (states, forces, and limits already in
+Frenet form) is exactly the plant such an OCP would wrap. See the model's issue tracker
+for the sketch.
 
 ## Run
 

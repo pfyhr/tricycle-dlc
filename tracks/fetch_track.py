@@ -27,23 +27,23 @@ R_EARTH = 6371008.8
 
 TRACKS = {
     'nordschleife': dict(
-        display='Nürburgring Nordschleife', prefix='ns',
+        display='Nürburgring Nordschleife', prefix='ns', width=8.5,
         query='relation(38566);out geom;', relation=True,
         lmin=20000, lmax=22000, rotate_start=False),  # committed CSV predates rotation
     'knutstorp': dict(
-        display='Ring Knutstorp', prefix='knutstorp',
+        display='Ring Knutstorp', prefix='knutstorp', width=10.0,
         query='way(229220546);out geom;',
         lmin=1900, lmax=2200),
     'anderstorp': dict(
-        display='Anderstorp Raceway', prefix='anderstorp',
+        display='Anderstorp Raceway', prefix='anderstorp', width=12.0,
         query='way["highway"="raceway"](57.23,13.55,57.30,13.65);out geom;',
         seed='Flygrakan', lmin=3900, lmax=4150),
     'gelleras': dict(
-        display='Gelleråsen Arena', prefix='gelleras',
+        display='Gelleråsen Arena', prefix='gelleras', width=10.0,
         query='way["highway"="raceway"](59.33,14.45,59.40,14.55);out geom;',
         lmin=2250, lmax=2450),
     'kinnekulle': dict(
-        display='Kinnekulle Ring', prefix='kinnekulle',
+        display='Kinnekulle Ring', prefix='kinnekulle', width=10.0,
         query='way["highway"="raceway"](58.52,13.33,58.60,13.45);out geom;',
         seed='Kinnekulle Ring', lmin=1950, lmax=2200),
 }

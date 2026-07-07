@@ -163,27 +163,37 @@ if os.path.exists(rf):
           2.5 < np.abs(o['deltaLdeg']).max() <= 3.0,
           f'{np.abs(o["deltaLdeg"]).max():.2f} of 3 deg')
 
-# ---- 5. TrackLap: full laps on the planar OSM circuits -----------------------------
+# ---- 5. TrackLap: minimum-curvature racing-line laps on the planar OSM circuits ----
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'tracks'))
 from speed_profile import load_centerline, speed_profile, write_track_table
+from racing_line import min_curvature_line
+from fetch_track import TRACKS
 
-# (key, expected length band [m], on-track |n| tolerance [m]); nMax scales with how
-# tight the circuit is (a centerline-following driver runs wide on hairpins).
-TRACK_CASES = [('nordschleife', 20000, 22000, 2.5),
-               ('knutstorp', 1900, 2200, 2.2),
-               ('anderstorp', 3900, 4150, 3.2),
-               ('gelleras', 2250, 2450, 4.5),
-               ('kinnekulle', 1950, 2200, 2.2)]
-for key, lmin, lmax, nMax in TRACK_CASES:
+CAR_HALF, EDGE_MARGIN = 0.9, 0.2  # must mirror track_lap.py
+TRACK_CASES = [('nordschleife', 20000, 22000),
+               ('knutstorp', 1900, 2200),
+               ('anderstorp', 3900, 4150),
+               ('gelleras', 2250, 2450),
+               ('kinnekulle', 1950, 2200)]
+for key, lmin, lmax in TRACK_CASES:
     sT, xT, yT, psiT, kapT = load_centerline(
         os.path.join(os.path.dirname(HERE), 'tracks', f'{key}.csv'))
-    vRef, axFF = speed_profile(sT, kapT)
-    LTRK = write_track_table(os.path.join(MOD, 'build', 'track.txt'),
-                             sT, kapT, vRef, axFF)
+    dsc = sT[1] - sT[0]
+    wMax = TRACKS[key]['width']/2 - CAR_HALF - EDGE_MARGIN
+    nRef, psiRef, kapLine, dsSeg = min_curvature_line(xT, yT, psiT, kapT, dsc, wMax)
+    vRef, axFF = speed_profile(sT, kapLine, ds_seg=dsSeg)
+    LTRK = write_track_table(os.path.join(MOD, 'build', 'track.txt'), sT, kapT, vRef,
+                             axFF, nRef=nRef, psiRef=psiRef, kappaLine=kapLine)
     check(f'{key} track data sane', lmin < LTRK < lmax and
           np.isfinite(kapT).all() and 8 < 1/np.abs(kapT).max() < 60,
           f'L {LTRK:.0f} m, Rmin {1/np.abs(kapT).max():.0f} m')
-    tIdeal = np.sum((sT[1] - sT[0])/vRef)
+    check(f'{key} racing line inside the corridor', np.abs(nRef).max() <= wMax + 1e-6,
+          f'|n_ref|max {np.abs(nRef).max():.2f} of {wMax:.2f} m')
+    # the racing line must be at least as quick as centerline following
+    vC, _ = speed_profile(sT, kapT)
+    tIdeal, tCenter = np.sum(dsSeg/vRef), np.sum(dsc/vC)
+    check(f'{key} racing line beats the centerline (ideal)', tIdeal < tCenter,
+          f'{tIdeal:.1f} s vs centerline {tCenter:.1f} s ({tIdeal - tCenter:+.1f})')
     rf = os.path.join(TMP, f'{key}_lap.csv')
     run_mos(
         'loadModel(Modelica); loadFile("Tricycle.mo");\n'
@@ -196,13 +206,19 @@ for key, lmin, lmax, nMax in TRACK_CASES:
         continue
     nl = np.genfromtxt(rf, delimiter=',', names=True)
     tl, m = nl['time'][-1], nl['time'] > 10
+    nRefT = np.interp(np.mod(nl['s'], LTRK), np.append(sT, LTRK),
+                      np.append(nRef, nRef[0]))
     check(f'{key} lap completes', nl['s'][-1] >= LTRK - 10,
           f"s {nl['s'][-1]:.0f} of {LTRK:.0f} m")
     check(f'{key} lap time near quasi-steady ideal (overhead < 6%)',
           tIdeal < tl < 1.06*tIdeal,
           f'{int(tl//60)}:{tl % 60:04.1f} vs ideal {int(tIdeal//60)}:{tIdeal % 60:04.1f}')
-    check(f'{key} stays on track (|n| < {nMax} m)', np.abs(nl['n']).max() < nMax,
-          f"|n|max {np.abs(nl['n']).max():.2f} m")
+    check(f'{key} follows the racing line (offset rms < 1.5 m)',
+          np.sqrt(((nl['n'] - nRefT)[m]**2).mean()) < 1.5,
+          f"rms {np.sqrt(((nl['n'] - nRefT)[m]**2).mean()):.2f} m")
+    check(f'{key} stays inside the track (tyres on asphalt)',
+          np.abs(nl['n']).max() + CAR_HALF < TRACKS[key]['width']/2 + 0.5,
+          f"|n|max {np.abs(nl['n']).max():.2f} m, half-width {TRACKS[key]['width']/2:.2f} m")
     check(f'{key} speed tracks the minimum-time profile', np.sqrt(
           ((nl['vKmh'] - nl['vRefKmh'])[m]**2).mean()) < 16,
           f"rms {np.sqrt(((nl['vKmh'] - nl['vRefKmh'])[m]**2).mean()):.1f} km/h")

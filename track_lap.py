@@ -17,13 +17,21 @@ from matplotlib.collections import LineCollection
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'tracks'))
 from speed_profile import load_centerline, speed_profile, write_track_table
+from racing_line import min_curvature_line
 from fetch_track import TRACKS
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--track', default='nordschleife', choices=list(TRACKS))
-TRACK = ap.parse_args().track
+ap.add_argument('--line', default='optimal', choices=['optimal', 'center'],
+                help='racing line (minimum-curvature) or centerline following')
+ap.add_argument('--width', type=float, default=None,
+                help='track width [m] override (default: per-track value)')
+args = ap.parse_args()
+TRACK, LINE = args.track, args.line
 CFG = TRACKS[TRACK]
 PFX, DISPLAY = CFG['prefix'], CFG['display']
+CAR_HALF = 0.9      # BW/2, must mirror the vehicle footprint
+EDGE_MARGIN = 0.2   # keep the tyres just inside the white line
 
 OMC = shutil.which('omc') or '/Users/pontus/opt/openmodelica/bin/omc'
 os.environ.setdefault('OPENMODELICAHOME',
@@ -39,14 +47,28 @@ SETUP = dict(m=1650.0, Pmax=150e3, CdA=0.72, Crr=0.012, rho=1.20,
 LAP_VARS = ('time|s|n|vKmh|vRefKmh|ayG|axG|deltaDeg|dpsiDeg|yawRateDegS|betaDeg|'
             'FtieL|FtieR|FxR|Pdrive|FzFL|FzFR')
 
-# ---- 1. track table (geometry + minimum-time speed profile for this setup) --------
+# ---- 1. track table (geometry + racing line + minimum-time speed profile) ---------
 s, x, y, psi, kap = load_centerline(os.path.join(HERE, f'tracks/{TRACK}.csv'))
-vRef, axFF = speed_profile(s, kap, **SETUP)
-LTRK = write_track_table(os.path.join(MOD, 'build/track.txt'), s, kap, vRef, axFF)
 ds = s[1] - s[0]
-tIdeal = np.sum(ds/vRef)
-print(f'{DISPLAY}: L = {LTRK:.0f} m; quasi-steady ideal lap '
-      f'{int(tIdeal//60)}:{tIdeal % 60:04.1f} (driver will be a bit slower)')
+width = args.width if args.width is not None else CFG.get('width', 10.0)
+wMax = max(0.0, width/2 - CAR_HALF - EDGE_MARGIN)
+
+if LINE == 'optimal' and wMax > 0.3:
+    nRef, psiRef, kapLine, dsSeg = min_curvature_line(x, y, psi, kap, ds, wMax)
+    tag = f'racing line, corridor +/-{wMax:.1f} m'
+else:
+    nRef = psiRef = None
+    kapLine, dsSeg = kap, None
+    tag = 'centerline'
+vRef, axFF = speed_profile(s, kapLine, ds_seg=dsSeg, **SETUP)
+LTRK = write_track_table(os.path.join(MOD, 'build/track.txt'), s, kap, vRef, axFF,
+                         nRef=nRef, psiRef=psiRef, kappaLine=kapLine)
+# lap distance/time along the driven path (line if optimal, else centerline)
+pathLen = float(np.sum(dsSeg)) if dsSeg is not None else LTRK
+tIdeal = np.sum((dsSeg if dsSeg is not None else np.full(len(s), ds))/vRef)
+print(f'{DISPLAY} ({tag}): centerline L = {LTRK:.0f} m, path {pathLen:.0f} m; '
+      f'quasi-steady ideal {int(tIdeal//60)}:{tIdeal % 60:04.1f} '
+      f'(driver will be a bit slower)')
 
 # ---- 2. simulate -------------------------------------------------------------------
 mos = (f'loadModel(Modelica); loadFile("Tricycle.mo");\n'
@@ -65,9 +87,14 @@ t = d['time']
 if d['s'][-1] < LTRK - 10:
     sys.exit(f"lap NOT completed: s ended at {d['s'][-1]:.0f} of {LTRK:.0f} m")
 tLap = t[-1]
+# racing-line offset target at the car's current station, and how well it is tracked
+nRefT = np.zeros_like(d['s']) if nRef is None else \
+    np.interp(np.mod(d['s'], LTRK), np.append(s, LTRK),
+              np.append(nRef, nRef[0]))
+trackRms = np.sqrt(((d['n'] - nRefT)[t > 5]**2).mean())
 print(f"lap time {int(tLap//60)}:{tLap % 60:04.1f}  "
       f"(vmax {d['vKmh'].max():.0f} km/h, vmin {d['vKmh'][t > 5].min():.0f} km/h, "
-      f"|n|max {np.abs(d['n']).max():.2f} m, "
+      f"line-tracking rms {trackRms:.2f} m, |n|max {np.abs(d['n']).max():.2f} m, "
       f"peak ay {np.abs(d['ayG']).max():.2f} g, peak brake {-d['axG'].min():.2f} g, "
       f"peak tie-rod {max(np.abs(d['FtieL']).max(), np.abs(d['FtieR']).max()):.0f} N)")
 
@@ -86,22 +113,32 @@ yCar = np.interp(sMod, sq, per(y)) + d['n']*np.cos(np.interp(sMod, sq, psiU))
 with open(os.path.join(HERE, f'outputs/{PFX}_lap_summary.csv'), 'w') as f:
     f.write('quantity,value,unit\n')
     f.write(f'track,{DISPLAY},-\n')
+    f.write(f'line,{LINE},-\n')
     f.write(f'lap_time,{tLap:.1f},s\n')
     f.write(f'track_length,{LTRK:.1f},m\n')
+    f.write(f'path_length,{pathLen:.1f},m\n')
     f.write(f'ideal_quasi_steady_lap,{tIdeal:.1f},s\n')
     f.write(f'v_max,{d["vKmh"].max():.1f},km/h\n')
     f.write(f'v_min,{d["vKmh"][t > 5].min():.1f},km/h\n')
     f.write(f'abs_n_max,{np.abs(d["n"]).max():.2f},m\n')
+    f.write(f'line_tracking_rms,{trackRms:.2f},m\n')
     f.write(f'ay_peak,{np.abs(d["ayG"]).max():.2f},g\n')
     f.write(f'brake_peak,{-d["axG"].min():.2f},g\n')
     f.write(f'tie_rod_peak,{max(np.abs(d["FtieL"]).max(), np.abs(d["FtieR"]).max()):.0f},N\n')
     f.write(f'drive_power_peak,{d["Pdrive"].max()/1e3:.0f},kW\n')
 
-# ---- 4. map colored by speed -------------------------------------------------------
+# ---- 4. map colored by speed, with track edges and centerline ----------------------
 fig, a = plt.subplots(figsize=(9, 7.2))
+nx, ny = -np.sin(psi), np.cos(psi)
+hw = width/2
+for sgn in (+1, -1):                        # track edges (asphalt corridor)
+    a.plot(x + sgn*hw*nx, y + sgn*hw*ny, color='0.7', lw=0.6)
+a.plot(np.append(x, x[0]), np.append(y, y[0]), color='0.55', lw=0.7, ls=(0, (6, 6)),
+       label='centerline')
 pts = np.column_stack([xCar, yCar]).reshape(-1, 1, 2)
 segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
-lc = LineCollection(segs, cmap='viridis', array=d['vKmh'][:-1], lw=2.2)
+lc = LineCollection(segs, cmap='viridis', array=d['vKmh'][:-1], lw=2.2,
+                    label='racing line' if LINE == 'optimal' else 'centerline follow')
 a.add_collection(lc)
 a.plot(xCar[0], yCar[0], 'o', color='tab:red', ms=6, zorder=5)
 a.annotate('start/finish', (xCar[0], yCar[0]), textcoords='offset points',
@@ -109,9 +146,10 @@ a.annotate('start/finish', (xCar[0], yCar[0]), textcoords='offset points',
 cb = fig.colorbar(lc, ax=a, shrink=0.8); cb.set_label('speed [km/h]')
 a.set_xlim(xCar.min() - 200, xCar.max() + 200)
 a.set_ylim(yCar.min() - 200, yCar.max() + 200)
-a.set_aspect('equal'); a.grid(alpha=.3)
+a.set_aspect('equal'); a.grid(alpha=.3); a.legend(loc='best', fontsize=8)
 a.set_xlabel('x [m]'); a.set_ylabel('y [m]')
-a.set_title(f'{DISPLAY} (planar, OSM centerline) — lap {int(tLap//60)}:{tLap % 60:04.1f} '
+lineLabel = f'{LINE} line' if LINE == 'center' else 'min-curvature racing line'
+a.set_title(f'{DISPLAY} (planar, OSM) — {lineLabel} — lap {int(tLap//60)}:{tLap % 60:04.1f} '
             f'at {SETUP["Pmax"]/1e3:.0f} kW / {SETUP["m"]:.0f} kg')
 plt.tight_layout(); plt.savefig(f'{SVG}/{PFX}_map.svg', facecolor='white'); plt.close()
 
@@ -123,10 +161,14 @@ ax[0].plot(d['s']/1000, d['vKmh'], color='tab:blue', lw=1.2, label='vehicle')
 ax[0].set_ylabel('speed [km/h]'); ax[0].legend(loc='lower right', fontsize=8)
 ax[0].grid(alpha=.3)
 ax[0].set_title('speed tracking and lateral offset over the lap')
-ax[1].plot(d['s']/1000, d['n'], color='tab:red', lw=1)
+if nRef is not None:
+    ax[1].plot(d['s']/1000, nRefT, 'k--', lw=0.9, label='racing-line target')
+    ax[1].fill_between(s/1000, -wMax, wMax, color='0.85', lw=0, zorder=0,
+                       label='corridor')
+ax[1].plot(d['s']/1000, d['n'], color='tab:red', lw=1, label='vehicle')
 ax[1].axhline(0, color='k', lw=.6)
 ax[1].set_ylabel('offset n [m]'); ax[1].set_xlabel('distance s [km]')
-ax[1].grid(alpha=.3)
+ax[1].grid(alpha=.3); ax[1].legend(loc='upper right', fontsize=7, ncol=3)
 plt.tight_layout(); plt.savefig(f'{SVG}/{PFX}_speed.svg', facecolor='white'); plt.close()
 
 # ---- 6. g-g diagram ----------------------------------------------------------------

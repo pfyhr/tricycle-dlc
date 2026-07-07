@@ -823,9 +823,9 @@ first-order road-wheel lag.</p></html>"));
     end TrackTricycle;
 
     block TrackDriver
-      "Preview driver for a closed track: curvature feedforward + offset feedback steering, and speed control tracking a precomputed minimum-time profile vRef(s)"
+      "Preview driver for a closed track: racing-line feedforward + offset feedback steering, and speed control tracking a precomputed minimum-time profile vRef(s)"
       parameter String fileName = "build/track.txt"
-        "Track table file: columns s, kappa, vRef, axFF";
+        "Track table file: columns s, kappa_c, vRef, axFF, n_ref, psi_ref, kappa_line";
       parameter Modelica.Units.SI.Length Lwb = 2.80 "Wheelbase (steer feedforward)";
       parameter Real Kus(unit="rad.s2/m") = 1.63e-3
         "Understeer gradient for the feedforward (analytic value of the tricycle)";
@@ -837,8 +837,8 @@ first-order road-wheel lag.</p></html>"));
       parameter Modelica.Units.SI.Velocity vKn = 30
         "Gain-scheduling speed: KnEff = Kn/(1+(vx/vKn)^2), the path response gain grows ~vx^2";
       parameter Real Kpsi = 0.5 "Steer per rad of heading error";
-      parameter Real Kr(unit="rad.s/rad") = 0.3
-        "Damping on the yaw-rate error r - kappa*vx (weave damping that does not fight steady cornering)";
+      parameter Real Kr(unit="rad.s/rad") = 0.6
+        "Damping on the yaw-rate error r - kappa_line*vx (weave damping; only acts on transients since it is zero in steady cornering). 0.6 keeps the high-speed racing line stable; 0.3 suffices for centerline following";
       parameter Modelica.Units.SI.Angle dMax = 0.35 "Smooth steer clamp";
       parameter Modelica.Units.SI.Velocity uPrevMin = 5 "Preview distance floor";
 
@@ -858,34 +858,41 @@ first-order road-wheel lag.</p></html>"));
         annotation (Placement(transformation(extent={{100,30},{120,50}})));
       Modelica.Blocks.Interfaces.RealOutput axCmd(unit="m/s2") "Acceleration request"
         annotation (Placement(transformation(extent={{100,-50},{120,-30}})));
-      Real kapPrev(unit="1/m") "Previewed curvature";
+      Real kapLine(unit="1/m") "Previewed racing-line curvature (steer feedforward)";
+      Modelica.Units.SI.Length nRef "Previewed racing-line offset target";
+      Modelica.Units.SI.Angle psiRef "Previewed racing-line heading (vs centerline)";
       Real vRefPrev "Previewed speed reference [m/s] (unit-free: shares a table output vector)";
-      Real axFFPrev "Previewed acceleration feedforward [m/s2] (logged; axCmd uses the preview-consistent law)";
       Modelica.Units.SI.Length nPrev "Predicted lateral offset";
       Modelica.Units.SI.Length dPrev "Speed preview distance";
     protected
-      Modelica.Blocks.Tables.CombiTable1Ds steerT(
-        tableOnFile=true, tableName="track", fileName=fileName, columns={2},
-        smoothness=Modelica.Blocks.Types.Smoothness.ContinuousDerivative);
+      Modelica.Blocks.Tables.CombiTable1Ds lineT(
+        tableOnFile=true, tableName="track", fileName=fileName, columns={5,6,7},
+        smoothness=Modelica.Blocks.Types.Smoothness.ContinuousDerivative)
+        "Racing line at the steer-preview station: n_ref, psi_ref, kappa_line";
       Modelica.Blocks.Tables.CombiTable1Ds speedT(
-        tableOnFile=true, tableName="track", fileName=fileName, columns={3,4},
+        tableOnFile=true, tableName="track", fileName=fileName, columns={3},
         smoothness=Modelica.Blocks.Types.Smoothness.ContinuousDerivative);
       Modelica.Blocks.Tables.CombiTable1Ds nowT(
-        tableOnFile=true, tableName="track", fileName=fileName, columns={2},
+        tableOnFile=true, tableName="track", fileName=fileName, columns={7},
         smoothness=Modelica.Blocks.Types.Smoothness.ContinuousDerivative)
-        "Curvature at the current station (yaw-rate reference)";
+        "Racing-line curvature at the current station (yaw-rate reference)";
     equation
       dPrev = noEvent(max(vx, uPrevMin))*TpV;
-      steerT.u = s + noEvent(max(vx, uPrevMin))*TpS;
+      lineT.u = s + noEvent(max(vx, uPrevMin))*TpS;
       speedT.u = s + dPrev;
-      kapPrev = steerT.y[1];
-      vRefPrev = speedT.y[1];
-      axFFPrev = speedT.y[2];
       nowT.u = s;
+      nRef = lineT.y[1];
+      psiRef = lineT.y[2];
+      kapLine = lineT.y[3];
+      vRefPrev = speedT.y[1];
       nPrev = n + TpN*(vx*sin(dpsi) + vy*cos(dpsi));
-      dCmd = dMax*tanh(((Lwb + Kus*vx^2)*kapPrev
-                        - (Kn/(1 + (vx/vKn)^2))*nPrev - Kpsi*dpsi
-                        - Kr*(r - nowT.y[1]*vx))/dMax);
+      // steer to the racing line: line-curvature feedforward + feedback on the offset
+      // error (n - n_ref) and the heading error (dpsi - psi_ref), plus yaw-rate damping
+      // about the line's own curvature. n_ref = psi_ref = 0, kappa_line = kappa_c
+      // recovers centerline following exactly.
+      dCmd = dMax*tanh(((Lwb + Kus*vx^2)*kapLine
+                        - (Kn/(1 + (vx/vKn)^2))*(nPrev - nRef) - Kpsi*(dpsi - psiRef)
+                        - Kr*(r - kapLine*vx))/dMax);
       // constant-acceleration law to meet the previewed reference: self-correcting
       // (equals the profile's own feedforward when exactly on the profile)
       axCmd = (vRefPrev^2 - vx^2)/(2*dPrev);
@@ -897,15 +904,20 @@ first-order road-wheel lag.</p></html>"));
           Line(points={{0,0},{22,32}}, color={0,0,0}, thickness=0.5),
           Text(extent={{-96,-60},{96,-90}}, textColor={0,0,0}, textString="min-time driver"),
           Text(extent={{-150,140},{150,110}}, textColor={0,0,255}, textString="%name")}),
-        Documentation(info="<html><p>Two-channel driver: <b>steering</b> is
-kinematic-plus-understeer curvature feedforward at a previewed station plus feedback
-on the predicted lateral offset and heading error; <b>speed</b> tracks a
-quasi-steady minimum-time profile v<sub>ref</sub>(s) (computed offline by
-forward/backward passes under the same power, grip, and drag limits as the vehicle)
-with its acceleration feedforward and a proportional speed error term. The lap time
-this driver achieves is &quot;the minimum he can manage&quot; for the given setup
-&mdash; not a formal optimum: he stays on the centerline instead of using the full
-track width.</p></html>"));
+        Documentation(info="<html><p>Two-channel driver following a <b>racing line</b>
+supplied as table columns (n<sub>ref</sub>, &psi;<sub>ref</sub>, &kappa;<sub>line</sub>
+vs centerline station s). <b>Steering</b> is line-curvature feedforward
+(&kappa;<sub>line</sub>, with an understeer term) plus feedback on the offset error
+n&nbsp;&minus;&nbsp;n<sub>ref</sub> and heading error
+&Delta;&psi;&nbsp;&minus;&nbsp;&psi;<sub>ref</sub>, and yaw-rate damping about the
+line's own curvature. <b>Speed</b> tracks the quasi-steady minimum-time profile
+v<sub>ref</sub>(s) computed on that line (forward/backward passes under the same power,
+grip, and drag limits as the vehicle) via a preview-consistent constant-acceleration
+law. With n<sub>ref</sub>&nbsp;=&nbsp;&psi;<sub>ref</sub>&nbsp;=&nbsp;0 and
+&kappa;<sub>line</sub>&nbsp;=&nbsp;&kappa;<sub>c</sub> the driver reduces exactly to
+centerline following. The line itself (<code>tracks/racing_line.py</code>) is the
+minimum-curvature line for the track corridor &mdash; close to, but not a formal
+solution of, the minimum-time problem.</p></html>"));
     end TrackDriver;
   end Track;
 
