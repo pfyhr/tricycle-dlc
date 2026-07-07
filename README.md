@@ -53,6 +53,38 @@ well damped: the 2 Hz arm filter adds phase lag that the preview must compensate
 tighter tunings destabilize the driver–steering loop — a genuine interaction, not a
 numerical artifact.
 
+## Track sim: minimum-time lap of the (planar) Nordschleife
+
+The `Tricycle.Track` sub-package re-expresses the tricycle in **track (Frenet)
+coordinates** (s, n, Δψ) and adds a **longitudinal degree of freedom**: rear-wheel
+drive limited by engine power (P_max/u) and by the rear friction-ellipse remainder
+√((μF_z)² − F_y²), brakes split front/rear under the same per-axle ellipse limit
+("ideal TC/ABS"), aero drag, rolling resistance, and pitch-lagged longitudinal load
+transfer. The centerline is the **Nürburgring Nordschleife** from OpenStreetMap
+(≈ 20.72 km, elevation dropped — planar by design; © OpenStreetMap contributors,
+ODbL), smoothed and tabulated as κ(s) in `tracks/nordschleife.csv`.
+
+The driver drives *his* fastest lap for the given setup, not a formal optimum: a
+quasi-steady minimum-time speed profile v_ref(s) is precomputed for the exact vehicle
+parameters (corner-speed limit → power/traction-limited forward pass →
+braking-limited backward pass, `tracks/speed_profile.py`), and the two-channel
+`TrackDriver` tracks it — curvature feedforward + gain-scheduled offset feedback +
+yaw-rate-error damping for steering, and a preview-consistent constant-acceleration
+law for throttle/brake. He stays on the centerline instead of using the track width.
+
+Defaults (150 kW / 1650 kg / μ = 0.95): **lap 11:07.3** vs the quasi-steady ideal
+10:53.7 (within 2 %), v_max 208 km/h on Döttinger Höhe, max centerline offset 1.7 m,
+peak tie-rod force ≈ 1.9 kN.
+
+![Nordschleife map colored by speed](outputs/svg/ns_map.svg)
+
+```
+python3 track_lap.py         # speed profile + lap simulation + figures + summary CSV
+python3 track_render.py      # chase-camera HTML viewer (outputs/ns_chase.html):
+                             # GTA-style follow cam, minimap, speed/yaw/accel HUD
+python3 tracks/fetch_nordschleife.py   # (re)build the centerline from OSM - needs network
+```
+
 ## Run
 
 ```

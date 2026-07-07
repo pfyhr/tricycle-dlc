@@ -556,7 +556,356 @@ reflects the full kingpin reaction back to the handwheel, so the steering-feel t
 a prescribed one-period-sine handwheel command instead of the closed-loop driver:
 perfectly repeatable for amplitude/frequency sweeps.</p></html>"));
     end OpenLoopDLC;
+
+    model NordschleifeLap
+      "Minimum-manageable-time lap of the (planar) Nurburgring Nordschleife: power- and grip-limited tricycle, preview driver with speed control"
+      extends Modelica.Icons.Example;
+      parameter String fileName = "build/ns_track.txt"
+        "Track table (generate with track_lap.py: s, kappa, vRef, axFF)";
+      parameter Modelica.Units.SI.Length sLap = 20718.5 "Lap length (terminate there)";
+      parameter Modelica.Units.SI.Velocity u0 = 30 "Rolling-start speed";
+      parameter Modelica.Units.SI.Power Pmax = 150e3 "Peak drive power";
+
+      output Modelica.Units.SI.Position s = trike.s "Distance along centerline [m]";
+      output Modelica.Units.SI.Length n = trike.n "Lateral offset from centerline [m]";
+      output Real vKmh = trike.u*3.6 "Speed [km/h]";
+      output Real vRefKmh = driver.vRefPrev*3.6 "Previewed speed reference [km/h]";
+      output Real ayG = trike.ay/Modelica.Constants.g_n "Lateral acceleration [g]";
+      output Real axG = trike.ax/Modelica.Constants.g_n "Longitudinal acceleration [g]";
+      output Real deltaDeg = trike.delta*180/Modelica.Constants.pi "Road-wheel angle [deg]";
+      output Real dpsiDeg = trike.dpsi*180/Modelica.Constants.pi "Heading error [deg]";
+      output Real yawRateDegS = trike.r*180/Modelica.Constants.pi "Yaw rate [deg/s]";
+      output Real betaDeg = atan(trike.vy/max(trike.u, 1))*180/Modelica.Constants.pi
+        "Body sideslip [deg]";
+      output Modelica.Units.SI.Force FtieL = trike.FtieL "Left tie-rod force [N]";
+      output Modelica.Units.SI.Force FtieR = trike.FtieR "Right tie-rod force [N]";
+      output Modelica.Units.SI.Force FxR = trike.FxR "Rear drive/brake force [N]";
+      output Modelica.Units.SI.Power Pdrive = trike.FxR*trike.u "Drive power [W]";
+      output Modelica.Units.SI.Force FzFL = trike.FzFL "Front-left vertical load [N]";
+      output Modelica.Units.SI.Force FzFR = trike.FzFR "Front-right vertical load [N]";
+
+      Tricycle.Track.TrackTricycle trike(fileName=fileName, u0=u0, Pmax=Pmax)
+        annotation (Placement(transformation(extent={{20,-10},{40,10}})));
+      Tricycle.Track.TrackDriver driver(fileName=fileName)
+        annotation (Placement(transformation(extent={{-40,-10},{-20,10}})));
+      Modelica.Blocks.Sources.RealExpression se(y=trike.s)
+        annotation (Placement(transformation(extent={{-80,22},{-60,36}})));
+      Modelica.Blocks.Sources.RealExpression ne(y=trike.n)
+        annotation (Placement(transformation(extent={{-80,8},{-60,22}})));
+      Modelica.Blocks.Sources.RealExpression dpsie(y=trike.dpsi)
+        annotation (Placement(transformation(extent={{-80,-6},{-60,8}})));
+      Modelica.Blocks.Sources.RealExpression ue(y=trike.u)
+        annotation (Placement(transformation(extent={{-80,-20},{-60,-6}})));
+      Modelica.Blocks.Sources.RealExpression vye(y=trike.vy)
+        annotation (Placement(transformation(extent={{-80,-34},{-60,-20}})));
+      Modelica.Blocks.Sources.RealExpression re(y=trike.r)
+        annotation (Placement(transformation(extent={{-80,-48},{-60,-34}})));
+    equation
+      connect(se.y, driver.s);
+      connect(ne.y, driver.n);
+      connect(dpsie.y, driver.dpsi);
+      connect(ue.y, driver.vx);
+      connect(vye.y, driver.vy);
+      connect(re.y, driver.r);
+      connect(driver.dCmd, trike.dCmd);
+      connect(driver.axCmd, trike.axCmd);
+      when trike.s >= sLap then
+        terminate("lap complete");
+      end when;
+      annotation (experiment(StopTime=900, Interval=0.05, Tolerance=1e-6),
+        Documentation(info="<html><p>One flying lap of the planar Nordschleife
+centerline (OSM data, ~20.7 km). The driver tracks the quasi-steady minimum-time
+speed profile computed for exactly this vehicle setup (mass, power, grip, drag), so
+the lap time is the minimum <i>he</i> can manage on the centerline. The simulation
+terminates when s reaches <code>sLap</code>; the lap time is the final simulation
+time plus the small correction for the rolling start. Run via
+<code>track_lap.py</code>, which generates the track/speed-profile table first.</p></html>"));
+    end NordschleifeLap;
   end Examples;
+
+  package Track
+    "Curvilinear (Frenet) track following: power- and traction-limited tricycle driven around a closed circuit at the driver's minimum manageable time"
+    extends Modelica.Icons.Package;
+
+    function smoothMin "C2 smooth minimum, 0.5*(x+y-sqrt((x-y)^2+eps^2))"
+      extends Modelica.Icons.Function;
+      input Real x;
+      input Real y;
+      input Real eps = 1 "Blend width (units of x,y)";
+      output Real z;
+    algorithm
+      z := 0.5*(x + y - sqrt((x - y)^2 + eps^2));
+      annotation (smoothOrder=2);
+    end smoothMin;
+
+    function smoothMax "C2 smooth maximum, 0.5*(x+y+sqrt((x-y)^2+eps^2))"
+      extends Modelica.Icons.Function;
+      input Real x;
+      input Real y;
+      input Real eps = 1 "Blend width (units of x,y)";
+      output Real z;
+    algorithm
+      z := 0.5*(x + y + sqrt((x - y)^2 + eps^2));
+      annotation (smoothOrder=2);
+    end smoothMax;
+
+    model TrackTricycle
+      "Tricycle in track coordinates (s,n,dpsi) with a longitudinal DOF: RWD, power- and friction-ellipse-limited drive/brake, brush tires, tie-rod loads"
+      // Track coordinates: s along the centerline, n leftward lateral offset,
+      // dpsi = vehicle heading - centerline heading. kappa > 0 = left curve.
+      parameter String fileName = "build/ns_track.txt"
+        "Track table file: columns s [m], kappa [1/m], vRef [m/s], axFF [m/s2]";
+      parameter Modelica.Units.SI.Velocity u0 = 30 "Initial (rolling-start) speed";
+      // chassis (identical defaults to PlanarTricycle)
+      parameter Modelica.Units.SI.Mass m = 1650 "Vehicle mass";
+      parameter Modelica.Units.SI.Inertia Izz = 2700 "Yaw moment of inertia";
+      parameter Modelica.Units.SI.Length a = 1.20 "CG to front axle";
+      parameter Modelica.Units.SI.Length b = 1.60 "CG to rear axle";
+      parameter Modelica.Units.SI.Length tf = 1.55 "Front track width";
+      parameter Modelica.Units.SI.Length hcg = 0.55 "CG height above ground";
+      parameter Real xiF(min=0, max=1) = 0.6 "Front share of lateral load transfer";
+      parameter Modelica.Units.SI.Time tauRoll = 0.15 "Roll-mode lag on lateral transfer";
+      parameter Modelica.Units.SI.Time tauPitch = 0.20 "Pitch-mode lag on longitudinal transfer";
+      parameter Modelica.Units.SI.Velocity uMin = 1 "Low-speed guard";
+      parameter Modelica.Units.SI.Length tMech = 0.025 "Mechanical (caster) trail";
+      parameter Modelica.Units.SI.Length Larm = 0.11 "Steering-arm length";
+      parameter Modelica.Units.SI.Time tauSteer = 0.12
+        "Steer actuation lag (driver arm + linkage), road-wheel level";
+      // powertrain / resistances
+      parameter Modelica.Units.SI.Power Pmax = 150e3 "Peak drive power at the rear wheel";
+      parameter Real kBf(min=0, max=1) = 0.65 "Front share of the brake force";
+      parameter Real CdA(unit="m2") = 0.72 "Drag area Cd*A";
+      parameter Real Crr = 0.012 "Rolling-resistance coefficient";
+      parameter Modelica.Units.SI.Density rho = 1.20 "Air density";
+      parameter TireData tireF "Front tire, per wheel";
+      parameter TireData tireR(c1=1.4e5, c2=8000, FzNom=8000, ap0=0.085)
+        "Lumped rear-axle tire";
+
+      Modelica.Blocks.Interfaces.RealInput dCmd(unit="rad") "Road-wheel steer command"
+        annotation (Placement(transformation(extent={{-120,30},{-100,50}})));
+      Modelica.Blocks.Interfaces.RealInput axCmd(unit="m/s2")
+        "Longitudinal acceleration request (drive > 0, brake < 0)"
+        annotation (Placement(transformation(extent={{-120,-50},{-100,-30}})));
+
+      // track-coordinate states
+      Modelica.Units.SI.Position s(start=0, fixed=true) "Distance along centerline";
+      Modelica.Units.SI.Length n(start=0, fixed=true) "Lateral offset, left of centerline";
+      Modelica.Units.SI.Angle dpsi(start=0, fixed=true) "Heading error to centerline";
+      Modelica.Units.SI.Velocity u(start=u0, fixed=true) "Forward speed (state)";
+      Modelica.Units.SI.Velocity vy(start=0, fixed=true) "Lateral velocity at CG";
+      Modelica.Units.SI.AngularVelocity r(start=0, fixed=true) "Yaw rate";
+      Modelica.Units.SI.Angle delta(start=0, fixed=true) "Road-wheel steer angle";
+      Modelica.Units.SI.Force dFz(start=0, fixed=true) "Front lateral load transfer";
+      Modelica.Units.SI.Force dFzX(start=0, fixed=true) "Longitudinal load transfer";
+      Modelica.Units.SI.Angle aLagFL(start=0, fixed=true) "Front-left lagged slip angle";
+      Modelica.Units.SI.Angle aLagFR(start=0, fixed=true) "Front-right lagged slip angle";
+      Modelica.Units.SI.Angle aLagR(start=0, fixed=true) "Rear lagged slip angle";
+      // kinematics, tires, loads
+      Real kappa(unit="1/m") "Centerline curvature at s";
+      Modelica.Units.SI.Velocity sdot "Centerline progress rate";
+      Modelica.Units.SI.Angle dL, dR;
+      Modelica.Units.SI.Angle aFL, aFR, aR;
+      Modelica.Units.SI.Force FzFL, FzFR, FzR;
+      Modelica.Units.SI.Force FyFL, FyFR, FyR;
+      Modelica.Units.SI.Torque MzFL, MzFR, MzR;
+      Modelica.Units.SI.Acceleration ax "Longitudinal acceleration (= der(u) - vy*r)";
+      Modelica.Units.SI.Acceleration ay "Lateral acceleration (= der(vy) + u*r)";
+      Modelica.Units.SI.Force FyF "Front-axle lateral force in the body frame";
+      // longitudinal forces
+      Modelica.Units.SI.Force Fdrag, Freq;
+      Modelica.Units.SI.Force FxR "Rear drive/brake force (applied)";
+      Modelica.Units.SI.Force FxFL, FxFR "Front brake forces (applied, <= 0)";
+      Modelica.Units.SI.Force FxRMax, FxFLMax, FxFRMax "Friction-ellipse remainders";
+      Modelica.Units.SI.Force FxbFL, FxbFR, FybFL, FybFR "Front wheel forces, body frame";
+      // kingpin / tie-rod (same decomposition as PlanarTricycle)
+      Modelica.Units.SI.Torque MkpL, MkpR;
+      Modelica.Units.SI.Force FtieL, FtieR;
+    protected
+      constant Modelica.Units.SI.Acceleration g = Modelica.Constants.g_n;
+      final parameter Modelica.Units.SI.Length L = a + b;
+      final parameter Modelica.Units.SI.Force Fz0F = m*g*b/(2*L);
+      final parameter Modelica.Units.SI.Force Fz0R = m*g*a/L;
+      final parameter Modelica.Units.SI.Force Froll = Crr*m*g;
+      Modelica.Units.SI.Velocity uG "Guarded speed";
+      Modelica.Units.SI.Force FreqPos, FreqNeg "Drive / brake split of the request";
+      Modelica.Blocks.Tables.CombiTable1Ds kappaT(
+        tableOnFile=true, tableName="track", fileName=fileName, columns={2},
+        smoothness=Modelica.Blocks.Types.Smoothness.ContinuousDerivative)
+        "Centerline curvature lookup";
+    equation
+      uG = noEvent(max(u, uMin));
+      // track (Frenet) kinematics
+      kappaT.u = s;
+      kappa = kappaT.y[1];
+      sdot = (u*cos(dpsi) - vy*sin(dpsi))/noEvent(max(1 - n*kappa, 0.2));
+      der(s) = sdot;
+      der(n) = u*sin(dpsi) + vy*cos(dpsi);
+      der(dpsi) = r - kappa*sdot;
+      // steering: first-order actuation lag, parallel steer
+      tauSteer*der(delta) + delta = dCmd;
+      dL = delta;
+      dR = delta;
+      aFL = dL - atan((vy + a*r)/noEvent(max(u - r*tf/2, uMin)));
+      aFR = dR - atan((vy + a*r)/noEvent(max(u + r*tf/2, uMin)));
+      aR  =    - atan((vy - b*r)/uG);
+      // quasi-static load transfer, roll- and pitch-lagged
+      tauRoll*der(dFz) + dFz = xiF*m*ay*hcg/tf;
+      tauPitch*der(dFzX) + dFzX = m*ax*hcg/L;
+      FzFL = Fz0F - dFz - dFzX/2;
+      FzFR = Fz0F + dFz - dFzX/2;
+      FzR  = Fz0R + dFzX;
+      // brush tires at relaxation-lagged slip angles
+      (tireF.sigmaRel/uG)*der(aLagFL) + aLagFL = aFL;
+      (tireF.sigmaRel/uG)*der(aLagFR) + aLagFR = aFR;
+      (tireR.sigmaRel/uG)*der(aLagR)  + aLagR  = aR;
+      (FyFL, MzFL) = brushForces(aLagFL, FzFL, tireF);
+      (FyFR, MzFR) = brushForces(aLagFR, FzFR, tireF);
+      (FyR,  MzR)  = brushForces(aLagR,  FzR,  tireR);
+      // longitudinal request -> drive (rear) / brake (split), limited by engine power
+      // and by the friction-ellipse remainder per axle ("ideal TC/ABS"; no wheel-spin
+      // model). Lateral force is not reduced by Fx - documented omission.
+      Fdrag = 0.5*rho*CdA*u^2;
+      Freq = m*axCmd + Fdrag + Froll;
+      FreqPos = 0.5*(Freq + sqrt(Freq^2 + 100^2));
+      FreqNeg = Freq - FreqPos;
+      FxRMax  = tireR.mu*FzR*sqrt(smoothMax(1 - (FyR/(tireR.mu*FzR))^2, 0, 0.02));
+      FxFLMax = tireF.mu*FzFL*sqrt(smoothMax(1 - (FyFL/(tireF.mu*FzFL))^2, 0, 0.02));
+      FxFRMax = tireF.mu*FzFR*sqrt(smoothMax(1 - (FyFR/(tireF.mu*FzFR))^2, 0, 0.02));
+      FxR  = smoothMin(smoothMin(FreqPos, Pmax/uG, 100), FxRMax, 100)
+           + smoothMax((1 - kBf)*FreqNeg, -FxRMax, 100);
+      FxFL = smoothMax(0.5*kBf*FreqNeg, -FxFLMax, 100);
+      FxFR = smoothMax(0.5*kBf*FreqNeg, -FxFRMax, 100);
+      // chassis: longitudinal + lateral + yaw in the body frame
+      FxbFL = FxFL*cos(dL) - FyFL*sin(dL);
+      FxbFR = FxFR*cos(dR) - FyFR*sin(dR);
+      FybFL = FyFL*cos(dL) + FxFL*sin(dL);
+      FybFR = FyFR*cos(dR) + FxFR*sin(dR);
+      FyF = FybFL + FybFR;
+      m*ax = FxbFL + FxbFR + FxR - Fdrag - Froll;
+      m*ay = FyF + FyR;
+      der(u)  = ax + vy*r;
+      der(vy) = ay - u*r;
+      Izz*der(r) = a*FyF - b*FyR - (tf/2)*(FxbFL - FxbFR)
+                 + MzFL + MzFR + MzR;
+      // kingpin moments -> tie-rod forces (scrub-radius x Fx omitted, as before)
+      MkpL = FyFL*tMech - MzFL;
+      MkpR = FyFR*tMech - MzFR;
+      FtieL = MkpL/Larm;
+      FtieR = MkpR/Larm;
+      annotation (
+        Icon(coordinateSystem(preserveAspectRatio=false), graphics={
+          Rectangle(extent={{-60,80},{60,-80}}, lineColor={0,0,0},
+            fillColor={235,245,235}, fillPattern=FillPattern.Solid, radius=20),
+          Rectangle(extent={{-58,72},{-30,44}}, lineColor={0,0,0},
+            fillColor={64,64,64}, fillPattern=FillPattern.Solid, radius=6),
+          Rectangle(extent={{30,72},{58,44}}, lineColor={0,0,0},
+            fillColor={64,64,64}, fillPattern=FillPattern.Solid, radius=6),
+          Rectangle(extent={{-14,-76},{14,-48}}, lineColor={0,0,0},
+            fillColor={64,64,64}, fillPattern=FillPattern.Solid, radius=6),
+          Text(extent={{-150,120},{150,90}}, textColor={0,0,255}, textString="%name")}),
+        Documentation(info="<html>
+<p>The planar tricycle re-expressed in <b>track (Frenet) coordinates</b>
+(s,&nbsp;n,&nbsp;&Delta;&psi;) around a closed centerline given as a table
+&kappa;(s), with a <b>longitudinal degree of freedom</b>: rear-wheel drive limited by
+engine power P<sub>max</sub>/u and by the rear friction-ellipse remainder
+&radic;((&mu;F<sub>z</sub>)&sup2;&nbsp;&minus;&nbsp;F<sub>y</sub>&sup2;), brakes split
+front/rear and limited the same way (&quot;ideal TC/ABS&quot;), plus aerodynamic drag
+and rolling resistance. Lateral tire behavior, load-transfer lags, and the
+kingpin/tie-rod decomposition are carried over from
+<a href=\"modelica://Tricycle.PlanarTricycle\">PlanarTricycle</a>; longitudinal load
+transfer (pitch-lagged) is added because braking/traction depend on it.</p>
+<p><b>Documented omissions</b>: no combined-slip reduction of F<sub>y</sub> by
+F<sub>x</sub> (grip-optimistic at corner exit/entry), no wheel-spin/lock dynamics,
+no elevation or banking (planar by design), steering hardware replaced by a
+first-order road-wheel lag.</p></html>"));
+    end TrackTricycle;
+
+    block TrackDriver
+      "Preview driver for a closed track: curvature feedforward + offset feedback steering, and speed control tracking a precomputed minimum-time profile vRef(s)"
+      parameter String fileName = "build/ns_track.txt"
+        "Track table file: columns s, kappa, vRef, axFF";
+      parameter Modelica.Units.SI.Length Lwb = 2.80 "Wheelbase (steer feedforward)";
+      parameter Real Kus(unit="rad.s2/m") = 1.63e-3
+        "Understeer gradient for the feedforward (analytic value of the tricycle)";
+      parameter Modelica.Units.SI.Time TpS = 0.45 "Steering preview time";
+      parameter Modelica.Units.SI.Time TpV = 1.0 "Speed preview time";
+      parameter Modelica.Units.SI.Time TpN = 0.8 "Lateral-offset prediction time";
+      parameter Real Kn(unit="rad/m") = 0.25
+        "Steer per meter of predicted offset at low speed";
+      parameter Modelica.Units.SI.Velocity vKn = 30
+        "Gain-scheduling speed: KnEff = Kn/(1+(vx/vKn)^2), the path response gain grows ~vx^2";
+      parameter Real Kpsi = 0.5 "Steer per rad of heading error";
+      parameter Real Kr(unit="rad.s/rad") = 0.3
+        "Damping on the yaw-rate error r - kappa*vx (weave damping that does not fight steady cornering)";
+      parameter Modelica.Units.SI.Angle dMax = 0.35 "Smooth steer clamp";
+      parameter Modelica.Units.SI.Velocity uPrevMin = 5 "Preview distance floor";
+
+      Modelica.Blocks.Interfaces.RealInput s(unit="m") "Distance along centerline"
+        annotation (Placement(transformation(extent={{-120,70},{-100,90}})));
+      Modelica.Blocks.Interfaces.RealInput n(unit="m") "Lateral offset"
+        annotation (Placement(transformation(extent={{-120,30},{-100,50}})));
+      Modelica.Blocks.Interfaces.RealInput dpsi(unit="rad") "Heading error"
+        annotation (Placement(transformation(extent={{-120,-10},{-100,10}})));
+      Modelica.Blocks.Interfaces.RealInput vx(unit="m/s") "Forward speed"
+        annotation (Placement(transformation(extent={{-120,-50},{-100,-30}})));
+      Modelica.Blocks.Interfaces.RealInput vy(unit="m/s") "Lateral velocity"
+        annotation (Placement(transformation(extent={{-120,-90},{-100,-70}})));
+      Modelica.Blocks.Interfaces.RealInput r(unit="rad/s") "Yaw rate"
+        annotation (Placement(transformation(extent={{-120,-120},{-100,-100}})));
+      Modelica.Blocks.Interfaces.RealOutput dCmd(unit="rad") "Road-wheel steer command"
+        annotation (Placement(transformation(extent={{100,30},{120,50}})));
+      Modelica.Blocks.Interfaces.RealOutput axCmd(unit="m/s2") "Acceleration request"
+        annotation (Placement(transformation(extent={{100,-50},{120,-30}})));
+      Real kapPrev(unit="1/m") "Previewed curvature";
+      Real vRefPrev "Previewed speed reference [m/s] (unit-free: shares a table output vector)";
+      Real axFFPrev "Previewed acceleration feedforward [m/s2] (logged; axCmd uses the preview-consistent law)";
+      Modelica.Units.SI.Length nPrev "Predicted lateral offset";
+      Modelica.Units.SI.Length dPrev "Speed preview distance";
+    protected
+      Modelica.Blocks.Tables.CombiTable1Ds steerT(
+        tableOnFile=true, tableName="track", fileName=fileName, columns={2},
+        smoothness=Modelica.Blocks.Types.Smoothness.ContinuousDerivative);
+      Modelica.Blocks.Tables.CombiTable1Ds speedT(
+        tableOnFile=true, tableName="track", fileName=fileName, columns={3,4},
+        smoothness=Modelica.Blocks.Types.Smoothness.ContinuousDerivative);
+      Modelica.Blocks.Tables.CombiTable1Ds nowT(
+        tableOnFile=true, tableName="track", fileName=fileName, columns={2},
+        smoothness=Modelica.Blocks.Types.Smoothness.ContinuousDerivative)
+        "Curvature at the current station (yaw-rate reference)";
+    equation
+      dPrev = noEvent(max(vx, uPrevMin))*TpV;
+      steerT.u = s + noEvent(max(vx, uPrevMin))*TpS;
+      speedT.u = s + dPrev;
+      kapPrev = steerT.y[1];
+      vRefPrev = speedT.y[1];
+      axFFPrev = speedT.y[2];
+      nowT.u = s;
+      nPrev = n + TpN*(vx*sin(dpsi) + vy*cos(dpsi));
+      dCmd = dMax*tanh(((Lwb + Kus*vx^2)*kapPrev
+                        - (Kn/(1 + (vx/vKn)^2))*nPrev - Kpsi*dpsi
+                        - Kr*(r - nowT.y[1]*vx))/dMax);
+      // constant-acceleration law to meet the previewed reference: self-correcting
+      // (equals the profile's own feedforward when exactly on the profile)
+      axCmd = (vRefPrev^2 - vx^2)/(2*dPrev);
+      annotation (
+        Icon(coordinateSystem(preserveAspectRatio=false), graphics={
+          Rectangle(extent={{-100,100},{100,-100}}, lineColor={0,0,0},
+            fillColor={245,235,235}, fillPattern=FillPattern.Solid),
+          Ellipse(extent={{-40,40},{40,-40}}, lineColor={0,0,0}, lineThickness=0.5),
+          Line(points={{0,0},{22,32}}, color={0,0,0}, thickness=0.5),
+          Text(extent={{-96,-60},{96,-90}}, textColor={0,0,0}, textString="min-time driver"),
+          Text(extent={{-150,140},{150,110}}, textColor={0,0,255}, textString="%name")}),
+        Documentation(info="<html><p>Two-channel driver: <b>steering</b> is
+kinematic-plus-understeer curvature feedforward at a previewed station plus feedback
+on the predicted lateral offset and heading error; <b>speed</b> tracks a
+quasi-steady minimum-time profile v<sub>ref</sub>(s) (computed offline by
+forward/backward passes under the same power, grip, and drag limits as the vehicle)
+with its acceleration feedforward and a proportional speed error term. The lap time
+this driver achieves is &quot;the minimum he can manage&quot; for the given setup
+&mdash; not a formal optimum: he stays on the centerline instead of using the full
+track width.</p></html>"));
+    end TrackDriver;
+  end Track;
 
   annotation (
     version="0.1.0",

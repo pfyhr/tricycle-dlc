@@ -14,6 +14,8 @@ double-lane-change results.
 | 7 | Reimpell, Stoll & Betzler, *The Automotive Chassis* | mechanical (caster) trail 20–40 mm → t_mech = 25 mm; manual (unassisted) steering ratios ~20:1 (assisted 14–17) |
 | 8 | WO 2025/113783 A1 (Marzbanrad & Jonasson, Volvo Truck Corp.) | precedent for the planar **three-wheel (tricycle)** vehicle model: individual front wheels + lumped rear, used for front-axle force/motion estimation |
 | 9 | Yin et al., *Sci. Reports* 14:28536 (2024) | road-wheel inertia about the kingpin ≈ 0.79 kg·m² per wheel; CarSim DLC simulations at 40–100 km/h |
+| 10 | **OpenStreetMap** route relation [38566](https://www.openstreetmap.org/relation/38566) "Nürburgring Nordschleife" — © OpenStreetMap contributors, [ODbL 1.0](https://opendatacommons.org/licenses/odbl/) | track centerline for `tracks/nordschleife.csv` (~20.72 km loop; raw Overpass response cached in `tracks/.nordschleife_osm.json`); elevation deliberately dropped — the track sim is planar by design |
+| 11 | Brayshaw & Harrison, "A quasi steady state approach to race car lap simulation…", *Proc. IMechE Part D* 219(6), 2005 | the corner-limit + power/traction-limited forward pass + braking-limited backward pass speed profile in `tracks/speed_profile.py` (standard lap-time-simulation method behind the track driver's v_ref(s)) |
 
 *Notes:* rear lumped tire uses doubled per-wheel capacity (c1, FzNom ×2 — neutral
 lumping, exactly consistent with two wheels in the linear range); documented omissions

@@ -19,7 +19,8 @@ os.makedirs(os.path.join(os.path.dirname(HERE), 'modelica', 'build'), exist_ok=T
 
 CLASSES = ['Tricycle.PlanarTricycle', 'Tricycle.ManualSteering', 'Tricycle.Iso3888Path',
            'Tricycle.Examples.StepSteer', 'Tricycle.Examples.DoubleLaneChange',
-           'Tricycle.Examples.OpenLoopDLC']
+           'Tricycle.Examples.OpenLoopDLC', 'Tricycle.Track.TrackTricycle',
+           'Tricycle.Track.TrackDriver', 'Tricycle.Examples.NordschleifeLap']
 
 # ---- parameters mirrored from Tricycle.mo defaults --------------------------------
 M, A, B = 1650.0, 1.20, 1.60
@@ -161,6 +162,44 @@ if os.path.exists(rf):
     check('OpenLoopDLC steer tracks command (arm filter attenuation < 15%)',
           2.5 < np.abs(o['deltaLdeg']).max() <= 3.0,
           f'{np.abs(o["deltaLdeg"]).max():.2f} of 3 deg')
+
+# ---- 5. NordschleifeLap: full lap on the planar OSM track --------------------------
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'tracks'))
+from speed_profile import load_centerline, speed_profile, write_track_table
+
+sT, xT, yT, psiT, kapT = load_centerline(
+    os.path.join(os.path.dirname(HERE), 'tracks', 'nordschleife.csv'))
+vRef, axFF = speed_profile(sT, kapT)
+LTRK = write_track_table(os.path.join(MOD, 'build', 'ns_track.txt'),
+                         sT, kapT, vRef, axFF)
+check('Nordschleife track data sane', 20000 < LTRK < 22000 and
+      abs(np.abs(kapT).max() - 1/19.5) < 0.02, f'L {LTRK:.0f} m')
+tIdeal = np.sum((sT[1] - sT[0])/vRef)
+
+rf = os.path.join(TMP, 'nslap.csv')
+out = run_mos(
+    'loadModel(Modelica); loadFile("Tricycle.mo");\n'
+    f'simulate(Tricycle.Examples.NordschleifeLap, stopTime=900, numberOfIntervals=9000, '
+    f'outputFormat="csv", variableFilter="time|s|n|vKmh|vRefKmh|ayG|axG|FtieL|FtieR", '
+    f'fileNamePrefix="build/nslap_test", simflags="-r={rf}"); getErrorString();')
+check('NordschleifeLap simulates', os.path.exists(rf))
+if os.path.exists(rf):
+    nl = np.genfromtxt(rf, delimiter=',', names=True)
+    tl, m = nl['time'][-1], nl['time'] > 15
+    check('lap completes', nl['s'][-1] >= LTRK - 10,
+          f"s {nl['s'][-1]:.0f} of {LTRK:.0f} m")
+    check('lap time near the quasi-steady ideal (driver overhead < 5%)',
+          tIdeal < tl < 1.05*tIdeal, f'{tl:.1f} s vs ideal {tIdeal:.1f} s')
+    check('stays on the road (|n| < 2.5 m)', np.abs(nl['n']).max() < 2.5,
+          f"|n|max {np.abs(nl['n']).max():.2f} m")
+    check('speed tracks the minimum-time profile', np.sqrt(
+          ((nl['vKmh'] - nl['vRefKmh'])[m]**2).mean()) < 15,
+          f"rms {np.sqrt(((nl['vKmh'] - nl['vRefKmh'])[m]**2).mean()):.1f} km/h")
+    check('lap uses the grip (peak |ay| in 0.8-1.0 g)',
+          0.8 < np.abs(nl['ayG']).max() < 1.0, f"{np.abs(nl['ayG']).max():.2f} g")
+    check('lap tie-rod force in expected range', 500 < max(
+          np.abs(nl['FtieL']).max(), np.abs(nl['FtieR']).max()) < 4000,
+          f"{max(np.abs(nl['FtieL']).max(), np.abs(nl['FtieR']).max()):.0f} N")
 
 # ---- summary -----------------------------------------------------------------------
 print()
