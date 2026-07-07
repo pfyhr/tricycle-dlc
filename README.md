@@ -3,7 +3,7 @@
 ![tests](https://github.com/pfyhr/tricycle-dlc/actions/workflows/ci.yml/badge.svg)
 
 Minimal, defensible planar vehicle model for studying tire forces on the suspension
-links and steering arm during an **ISO 3888-1 double lane change**, with a traditional
+links and steering arm during an **ISO 3888-1 double lane change**, with a **traditional
 unassisted rack-and-pinion** steering.
 
 ## Model

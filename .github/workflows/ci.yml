@@ -33,7 +33,7 @@ jobs:
           omc /tmp/install_msl.mos
 
       - name: Install Python dependencies
-        run: pip install numpy
+        run: pip install numpy casadi   # casadi (bundles IPOPT) enables the --line=ocp min-time tests
 
       - name: Run test suite
         run: python3 tests/run_tests.py
