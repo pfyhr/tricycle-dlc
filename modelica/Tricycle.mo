@@ -679,8 +679,22 @@ table and overrides <code>sLap</code>/<code>u0</code> per track.</p></html>"));
       parameter Real CdA(unit="m2") = 0.72 "Drag area Cd*A";
       parameter Real Crr = 0.012 "Rolling-resistance coefficient";
       parameter Modelica.Units.SI.Density rho = 1.20 "Air density";
-      parameter TireData tireF "Front tire, per wheel";
-      parameter TireData tireR(c1=1.4e5, c2=8000, FzNom=8000, ap0=0.085)
+      // tire fields lifted to top-level parameters so a whole car (grip, stiffness,
+      // load scaling) can be set from one -override string; defaults reproduce the
+      // original 205/55R16-class front + stiffer lumped rear exactly
+      parameter Real muF = 0.95 "Front tyre-road friction coefficient";
+      parameter Real muR = 0.95 "Rear tyre-road friction coefficient";
+      parameter Real c1F(unit="N/rad") = 7.0e4 "Front cornering-stiffness scale";
+      parameter Real c1R(unit="N/rad") = 1.4e5 "Rear cornering-stiffness scale";
+      parameter Modelica.Units.SI.Force c2F = 4000 "Front load at which Calpha peaks";
+      parameter Modelica.Units.SI.Force c2R = 8000 "Rear load at which Calpha peaks";
+      parameter Modelica.Units.SI.Force FzNomF = 4000 "Front nominal load (patch scaling)";
+      parameter Modelica.Units.SI.Force FzNomR = 8000 "Rear nominal load (patch scaling)";
+      parameter Modelica.Units.SI.Length ap0F = 0.06 "Front contact-patch half length";
+      parameter Modelica.Units.SI.Length ap0R = 0.085 "Rear contact-patch half length";
+      parameter TireData tireF(mu=muF, c1=c1F, c2=c2F, FzNom=FzNomF, ap0=ap0F)
+        "Front tire, per wheel";
+      parameter TireData tireR(mu=muR, c1=c1R, c2=c2R, FzNom=FzNomR, ap0=ap0R)
         "Lumped rear-axle tire";
 
       Modelica.Blocks.Interfaces.RealInput dCmd(unit="rad") "Road-wheel steer command"
