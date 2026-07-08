@@ -39,6 +39,12 @@ select{width:100%;margin-bottom:14px}
 .charts .map{grid-column:1/-1}
 canvas{width:100%;display:block;border-radius:8px}
 .cap{font-size:11px;color:var(--muted);margin-top:7px}
+.chasewrap{position:relative}
+.pb{display:flex;align-items:center;gap:10px;margin-top:10px}
+.pb button{width:40px;padding:7px 0;text-align:center;font-size:14px}
+.pb input[type=range]{flex:1;margin:0}
+.pb .mono{font-family:var(--mono);font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:52px}
+.pb select{width:auto;margin:0;padding:6px 9px}
 .foot{color:var(--muted);font-size:12px;margin-top:22px;max-width:80ch}
 .foot b{color:var(--ink);font-weight:600}
 </style></head>
@@ -65,7 +71,13 @@ changing the <em>car</em>. Orange dashed = fastest real logged lap. Proof of con
       <div class="d"><div class="k">Top speed</div><div class="n" id="vmax">—</div></div>
     </div>
     <div class="charts">
-      <div class="panel map"><h2>Racing line — speed</h2><canvas id="map" height="430"></canvas></div>
+      <div class="panel map"><h2>Chase camera — <span id="prog" style="color:var(--muted);font-weight:400">lap replay</span></h2>
+        <div class="chasewrap"><canvas id="chase" height="440"></canvas></div>
+        <div class="pb"><button id="play">▶</button>
+          <input type="range" id="scrub" min="0" max="1000" value="0">
+          <span class="mono" id="ptime">0:00.0</span>
+          <select id="pspeed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select>
+        </div></div>
       <div class="panel"><h2>Speed trace</h2><canvas id="spd" height="240"></canvas>
         <div class="cap"><span style="color:var(--accent)">■</span> sim &nbsp;
           <span style="color:var(--muted)">■</span> reference &nbsp;
@@ -150,10 +162,11 @@ function deriv(y,P,vRef){
 }
 function simulate(P){
   const vRef=profile(P); let y=[0,0,0,vRef[0],0,0,0,0,0];
-  const dt=0.006,o={s:[],n:[],v:[],ax:[],ay:[],x:[],y:[]}; let t=0,st=0,peak=0,vmax=0;
+  const dt=0.006,o={s:[],n:[],v:[],ax:[],ay:[],x:[],y:[],h:[],del:[],beta:[]}; let t=0,st=0,peak=0,vmax=0;
   while(y[0]<T.L && st<40000){
     const s=y[0], xc=interp(T.x,s),yc=interp(T.y,s),pc=interp(T.psiU,s);
     o.s.push(s);o.v.push(y[3]*3.6);o.x.push(xc-y[1]*Math.sin(pc));o.y.push(yc+y[1]*Math.cos(pc));
+    o.h.push(pc+y[2]);o.del.push(y[6]);o.beta.push(Math.atan2(y[4],Math.max(y[3],1)));
     const k1=deriv(y,P,vRef); o.ax.push(k1.ax/C.g);o.ay.push(k1.ay/C.g);
     peak=Math.max(peak,Math.abs(k1.ay)/C.g); vmax=Math.max(vmax,y[3]*3.6);
     const y2=y.map((v,i)=>v+0.5*dt*k1.dy[i]),k2=deriv(y2,P,vRef);
@@ -161,7 +174,7 @@ function simulate(P){
     const y4=y.map((v,i)=>v+dt*k3.dy[i]),k4=deriv(y4,P,vRef);
     y=y.map((v,i)=>v+dt/6*(k1.dy[i]+2*k2.dy[i]+2*k3.dy[i]+k4.dy[i])); t+=dt;st++;
   }
-  return {o,lap:t,vRef,peak,vmax,done:y[0]>=T.L};
+  return {o,lap:t,vRef,peak,vmax,dt,done:y[0]>=T.L};
 }
 // ---- rendering ------------------------------------------------------------------
 function vcol(f){ // 0..1 -> blue->cyan->green->yellow (viridis-ish)
@@ -172,21 +185,80 @@ function vcol(f){ // 0..1 -> blue->cyan->green->yellow (viridis-ish)
 function dpr(cv,h){const w=cv.clientWidth;cv.width=w*devicePixelRatio;cv.height=h*devicePixelRatio;
   const x=cv.getContext('2d');x.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);return {x,w,h};}
 function css(v){return getComputedStyle(document.body).getPropertyValue(v).trim();}
-function drawMap(R){
-  const cv=$('map'),{x:g,w,h}=dpr(cv,430);
-  let xs=T.x,ys=T.y, minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);
-  const pad=30,sc=Math.min((w-2*pad)/(maxx-minx),(h-2*pad)/(maxy-miny));
-  const ox=(w-(maxx+minx)*sc)/2, oy=(h+(maxy+miny)*sc)/2; // flip y
-  const PX=(X,Y)=>[ox+X*sc, oy-Y*sc];
-  // track edges
-  g.strokeStyle=css('--line');g.lineWidth=1;
-  for(const sgn of [1,-1]){g.beginPath();for(let i=0;i<T.n;i++){const nx=-Math.sin(T.psiU[i]),ny=Math.cos(T.psiU[i]);
-    const[px,py]=PX(T.x[i]+sgn*5*nx,T.y[i]+sgn*5*ny); i?g.lineTo(px,py):g.moveTo(px,py);}g.closePath();g.stroke();}
-  // driven path colored by speed
-  const vmn=Math.min(...R.o.v),vmx=Math.max(...R.o.v);
-  for(let i=1;i<R.o.x.length;i++){const[ax,ay]=PX(R.o.x[i-1],R.o.y[i-1]),[bx,by]=PX(R.o.x[i],R.o.y[i]);
-    g.strokeStyle=vcol((R.o.v[i]-vmn)/(vmx-vmn+1e-6));g.lineWidth=2.4;g.beginPath();g.moveTo(ax,ay);g.lineTo(bx,by);g.stroke();}
-  const[sx,sy]=PX(R.o.x[0],R.o.y[0]);g.fillStyle=css('--bad');g.beginPath();g.arc(sx,sy,4,0,7);g.fill();
+function roundRect(g,x,y,wd,ht,r){g.beginPath();g.moveTo(x+r,y);g.arcTo(x+wd,y,x+wd,y+ht,r);
+  g.arcTo(x+wd,y+ht,x,y+ht,r);g.arcTo(x,y+ht,x,y,r);g.arcTo(x,y,x+wd,y,r);g.closePath();}
+function sampleAt(R,t){
+  const o=R.o,N=o.x.length; let idx=t/R.dt; if(idx>N-1.001)idx=N-1.001; if(idx<0)idx=0;
+  const i=Math.floor(idx),f=idx-i, L=a=>a[i]+f*(a[i+1]-a[i]);
+  return {x:L(o.x),y:L(o.y),h:L(o.h),v:L(o.v),ax:L(o.ax),ay:L(o.ay),del:L(o.del),beta:L(o.beta),s:L(o.s)};
+}
+function drawCar(g,cx,cy,sc,S){
+  const Ln=4.2*sc,Wd=1.85*sc;
+  // sideslip: velocity vector (car slips by beta from heading; +vy is left = screen -x)
+  g.strokeStyle=css('--accent2');g.lineWidth=2;g.beginPath();g.moveTo(cx,cy);
+  const vl=Math.min(70,S.v*0.45); g.lineTo(cx-Math.sin(S.beta)*vl,cy-Math.cos(S.beta)*vl);g.stroke();
+  g.save();g.translate(cx,cy);
+  g.fillStyle=css('--accent');g.globalAlpha=.92;roundRect(g,-Wd/2,-Ln/2,Wd,Ln,3*sc*0.3+2);g.fill();g.globalAlpha=1;
+  g.fillStyle=css('--ink');const ww=0.75*sc,wl=1.25*sc;
+  for(const[wx,wy,st] of [[-Wd/2,-Ln*0.32,S.del],[Wd/2,-Ln*0.32,S.del],[-Wd/2,Ln*0.32,0],[Wd/2,Ln*0.32,0]]){
+    g.save();g.translate(wx,wy);g.rotate(-st);roundRect(g,-ww/2,-wl/2,ww,wl,2);g.fill();g.restore();}
+  g.restore();
+}
+function drawHUD(g,w,h,S){
+  g.textAlign='left';g.font='700 32px '+css('--mono');g.fillStyle=css('--ink');g.fillText(Math.round(S.v),16,h-16);
+  g.font='11px '+css('--sans');g.fillStyle=css('--muted');g.fillText('km/h',18+g.measureText(Math.round(S.v)).width*0+52,h-16);
+  // g-g dot
+  const gx=w-52,gy=h-52,rr=36;g.strokeStyle=css('--line');g.lineWidth=1;
+  g.beginPath();g.arc(gx,gy,rr,0,7);g.moveTo(gx-rr,gy);g.lineTo(gx+rr,gy);g.moveTo(gx,gy-rr);g.lineTo(gx,gy+rr);g.stroke();
+  g.fillStyle=css('--accent2');g.beginPath();g.arc(gx+S.ay/1.6*rr,gy-S.ax/1.6*rr,4,0,7);g.fill();
+  // throttle/brake bar
+  const bx=w-92,by=h-92,bh=76;g.fillStyle=css('--line');g.fillRect(bx,by,7,bh);
+  if(S.ax>=0){g.fillStyle=css('--good');const p=Math.min(S.ax/1.2,1)*bh/2;g.fillRect(bx,by+bh/2-p,7,p);}
+  else{g.fillStyle=css('--bad');const p=Math.min(-S.ax/1.2,1)*bh/2;g.fillRect(bx,by+bh/2,7,p);}
+  // steer indicator
+  g.textAlign='center';g.fillStyle=css('--muted');g.font='10px '+css('--sans');g.fillText('steer',w/2,16);
+  const sw=64;g.strokeStyle=css('--line');g.beginPath();g.moveTo(w/2-sw,24);g.lineTo(w/2+sw,24);g.stroke();
+  g.fillStyle=css('--accent');g.beginPath();g.arc(w/2-Math.max(-1,Math.min(1,S.del/0.35))*sw,24,4,0,7);g.fill();g.textAlign='left';
+}
+function drawMini(g,w,h,S){
+  const mw=118,mh=118,mx=w-mw-8,my=8;g.save();g.globalAlpha=.92;g.fillStyle=css('--panel');g.fillRect(mx,my,mw,mh);g.globalAlpha=1;
+  g.strokeStyle=css('--line');g.strokeRect(mx,my,mw,mh);
+  const xs=T.x,ys=T.y,mnx=Math.min(...xs),mxx=Math.max(...xs),mny=Math.min(...ys),mxy=Math.max(...ys),pad=11;
+  const sc=Math.min((mw-2*pad)/(mxx-mnx),(mh-2*pad)/(mxy-mny)),P=(X,Y)=>[mx+pad+(X-mnx)*sc,my+mh-pad-(Y-mny)*sc];
+  g.strokeStyle=css('--muted');g.lineWidth=1;g.beginPath();
+  for(let i=0;i<T.n;i++){const[px,py]=P(T.x[i],T.y[i]);i?g.lineTo(px,py):g.moveTo(px,py);}g.closePath();g.stroke();
+  const[dx,dy]=P(S.x,S.y);g.fillStyle=css('--accent2');g.beginPath();g.arc(dx,dy,3.5,0,7);g.fill();g.restore();
+}
+function drawChase(R,t){
+  const cv=$('chase'),{x:g,w,h}=dpr(cv,440);
+  g.fillStyle=css('--panel2');g.fillRect(0,0,w,h);
+  const S=sampleAt(R,t),VIEW=88,sc=(h*0.5)/VIEW,cx=w/2,cy=h*0.6,a=Math.PI/2-S.h,ca=Math.cos(a),sa=Math.sin(a);
+  const W2S=(X,Y)=>{const dx=X-S.x,dy=Y-S.y;return [cx+(dx*ca-dy*sa)*sc, cy-(dx*sa+dy*ca)*sc];};
+  // asphalt band
+  g.strokeStyle=css('--line');g.lineWidth=10*sc;g.lineJoin='round';g.beginPath();let go=false;
+  for(let i=0;i<T.n;i++){const[px,py]=W2S(T.x[i],T.y[i]);
+    if(px<-80||px>w+80||py<-80||py>h+80){go=false;continue;} go?g.lineTo(px,py):g.moveTo(px,py);go=true;}
+  g.globalAlpha=.35;g.stroke();g.globalAlpha=1;
+  // white edges
+  g.lineWidth=1.5;g.strokeStyle=css('--muted');
+  for(const sgn of [1,-1]){g.beginPath();go=false;for(let i=0;i<T.n;i++){const nx=-Math.sin(T.psiU[i]),ny=Math.cos(T.psiU[i]);
+    const[px,py]=W2S(T.x[i]+sgn*5*nx,T.y[i]+sgn*5*ny);
+    if(px<-80||px>w+80||py<-80||py>h+80){go=false;continue;} go?g.lineTo(px,py):g.moveTo(px,py);go=true;}g.globalAlpha=.5;g.stroke();g.globalAlpha=1;}
+  // driven line near the car, coloured by speed
+  const idx=Math.floor(t/R.dt),lo=Math.max(1,idx-450),hi=Math.min(R.o.x.length-1,idx+850);
+  const vmn=Math.min(...R.o.v),vmx=Math.max(...R.o.v);g.lineWidth=2.6;
+  for(let i=lo;i<=hi;i++){const[ax,ay]=W2S(R.o.x[i-1],R.o.y[i-1]),[bx,by]=W2S(R.o.x[i],R.o.y[i]);
+    g.strokeStyle=vcol((R.o.v[i]-vmn)/(vmx-vmn+1e-6));g.beginPath();g.moveTo(ax,ay);g.lineTo(bx,by);g.stroke();}
+  drawCar(g,cx,cy,sc,S);drawHUD(g,w,h,S);drawMini(g,w,h,S);
+}
+let R=null, pb={t:0,playing:false,speed:1,last:0};
+function renderFrame(){ if(!R)return; drawChase(R,pb.t);
+  $('ptime').textContent=fmt(pb.t); $('prog').textContent=(sampleAt(R,pb.t).s/1000).toFixed(2)+' / '+(T.L/1000).toFixed(2)+' km'; }
+function tick(ts){
+  if(pb.playing&&R){ if(!pb.last)pb.last=ts; pb.t+=(ts-pb.last)/1000*pb.speed; pb.last=ts;
+    if(pb.t>=R.lap){pb.t=R.lap;pb.playing=false;$('play').textContent='▶';}
+    $('scrub').value=Math.round(pb.t/R.lap*1000); renderFrame(); } else pb.last=0;
+  requestAnimationFrame(tick);
 }
 function axes(g,w,h,x0,x1,y0,y1){g.strokeStyle=css('--line');g.lineWidth=1;g.strokeRect(38,10,w-50,h-30);
   g.fillStyle=css('--muted');g.font='10px '+css('--mono');}
@@ -217,8 +289,7 @@ function drawGG(R){
 const fmt=s=>{const m=Math.floor(s/60);return m+':'+(s-60*m).toFixed(1).padStart(4,'0');};
 // ---- UI -------------------------------------------------------------------------
 const SL=[['m','Mass',700,1300,1,'kg'],['Pmax','Power',50e3,200e3,1e3,'kW',v=>v/1e3],
-  ['mu','Grip µ',1.0,1.8,0.01,''],['ClA','Downforce ClA',0,5,0.1,'m²'],
-  ['kBf','Brake bias (front)',0.5,0.75,0.01,'',v=>Math.round(v*100)/100],['xiF','Balance (roll split F)',0.35,0.7,0.01,'']];
+  ['mu','Grip µ',1.0,1.8,0.01,''],['ClA','Downforce ClA',0,5,0.1,'m²']];
 let car, wet=false;
 const sd=$('sliders');
 SL.forEach(([k,lab,mn,mx])=>{const el=document.createElement('label');el.className='row';
@@ -227,7 +298,7 @@ SL.forEach(([k,lab,mn,mx])=>{const el=document.createElement('label');el.classNa
 const presetSel=$('preset');
 for(const [k,v] of Object.entries(D.presets)){const o=document.createElement('option');o.value=k;o.textContent=v.name;presetSel.appendChild(o);}
 function syncSliders(){SL.forEach(([k,lab,mn,mx,st,unit,disp])=>{const raw=k==='mu'?car.muF:car[k];
-  $('s_'+k).value=raw; $('v_'+k).textContent=(disp?disp(raw):(k==='mu'||k==='kBf'||k==='xiF'?raw.toFixed(2):Math.round(raw)))+(unit?' '+unit:'');});}
+  $('s_'+k).value=raw; $('v_'+k).textContent=(disp?disp(raw):(k==='mu'?raw.toFixed(2):k==='ClA'?raw.toFixed(1):Math.round(raw)))+(unit?' '+unit:'');});}
 function applyPreset(name){car=Object.assign({},D.presets[name]); syncSliders(); run();}
 SL.forEach(([k])=>{$('s_'+k).addEventListener('input',e=>{const val=+e.target.value;
   if(k==='mu'){car.muF=val;car.muR=val;car.mu=val;} else car[k]=val; schedule();});});
@@ -235,22 +306,28 @@ presetSel.addEventListener('change',e=>{wet=false;$('dry').classList.add('on');$
 $('dry').onclick=()=>{wet=false;$('dry').classList.add('on');$('wet').classList.remove('on');run();};
 $('wet').onclick=()=>{wet=true;$('wet').classList.add('on');$('dry').classList.remove('on');run();};
 let raf=0; function schedule(){SL.forEach(([k,lab,mn,mx,st,unit,disp])=>{const raw=k==='mu'?car.muF:car[k];
-  $('v_'+k).textContent=(disp?disp(raw):(k==='mu'||k==='kBf'||k==='xiF'?raw.toFixed(2):Math.round(raw)))+(unit?' '+unit:'');});
+  $('v_'+k).textContent=(disp?disp(raw):(k==='mu'?raw.toFixed(2):k==='ClA'?raw.toFixed(1):Math.round(raw)))+(unit?' '+unit:'');});
   if(raf)return; raf=requestAnimationFrame(()=>{raf=0;run();});}
 function run(){
   const P=Object.assign({},car);
   P.CdA=car.CdA+0.10*P.ClA;                     // downforce drag penalty
   if(wet){P.muF*=0.72;P.muR*=0.72;P.mu*=0.72;}
-  const R=simulate(P);
+  R=simulate(P);
   const tcar=presetSel.value; R.tel=D.tel[tcar]||null;
   $('lap').textContent=R.done?fmt(R.lap):'DNF';
   $('peakg').textContent=R.peak.toFixed(2)+' g'; $('vmax').textContent=Math.round(R.vmax)+' km/h';
   if(R.tel){$('real').textContent=fmt(R.tel.lap); const d=R.lap-R.tel.lap;
     $('delta').textContent=(d>=0?'+':'')+d.toFixed(1)+'s';}
   else{$('real').textContent='—';$('delta').textContent='—';}
-  drawMap(R);drawSpeed(R);drawGG(R);
+  if(pb.t>R.lap)pb.t=R.lap;
+  drawSpeed(R);drawGG(R);renderFrame();
 }
-window.addEventListener('resize',()=>run());
+$('play').onclick=()=>{ if(!R)return; if(pb.t>=R.lap)pb.t=0; pb.playing=!pb.playing;
+  pb.last=0; $('play').textContent=pb.playing?'❚❚':'▶'; };
+$('scrub').oninput=e=>{ if(!R)return; pb.t=+e.target.value/1000*R.lap; renderFrame(); };
+$('pspeed').onchange=e=>{ pb.speed=+e.target.value; };
+window.addEventListener('resize',()=>{ if(R){renderFrame();drawSpeed(R);drawGG(R);} });
+requestAnimationFrame(tick);
 presetSel.value='elise'; applyPreset('elise');
 </script>
 </body></html>
