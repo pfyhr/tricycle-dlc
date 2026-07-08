@@ -33,7 +33,10 @@ psiU = np.unwrap(psi)
 cfg0 = build_config('elise', 'base')
 nRef, psiRef, kapLine, dsSeg = min_curvature_line(x, y, psi, kap, ds, wMax)
 vMC, _ = speed_profile(s, kapLine, ds_seg=dsSeg, **cfg0['profile'])
-nRef, psiRef, kapLine, dsSeg = apply_driver_margin(x, y, psi, ds, nRef, wMax, vMC, margin=0.4)
+# light inset only: the tuned JS driver tracks the line tightly (rms ~0.9 m) so it no
+# longer needs the aggressive speed-dependent margin the old wide driver required
+nRef, psiRef, kapLine, dsSeg = apply_driver_margin(x, y, psi, ds, nRef, wMax, vMC,
+                                                   margin=0.3, k=0.5)
 
 wrap = lambda a: np.append(a, a[0]).tolist()          # periodic: append s=L point
 sW = np.append(s, LTRK).tolist()

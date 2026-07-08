@@ -163,8 +163,8 @@ input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;bac
 const D=__DATA__, T=D.track;
 const $=id=>document.getElementById(id);
 // ---- physics constants + fixed driver/profile calibration -----------------------
-const C={uMin:1,uPrevMin:5,tauSteer:0.12,tauRoll:0.15,tauPitch:0.20,TpV:1.0,TpFF:0.5,
-  xLA0:5.0,TLA:0.25,dMax:0.35,g:9.80665};
+const C={uMin:1,uPrevMin:5,tauSteer:0.10,tauRoll:0.15,tauPitch:0.20,TpV:1.0,TpFF:0.6,
+  xLA0:5.0,TLA:0.25,dMax:0.35,g:9.80665};   // club-driver reflexes: quick hands, big preview
 const GRIP_DERATE=0.90;   // speed profile budgets the grip the plant actually sustains…
                           //   (lower = cleaner line but slower; higher = faster but runs wider)
 const MASS_EXP=0.5;       // …reduced further when the car is loaded past its design mass

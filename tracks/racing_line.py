@@ -23,7 +23,7 @@ Sign convention matches the model: n / w positive to the LEFT of the centerline
 """
 import numpy as np
 from scipy import sparse
-from scipy.sparse.linalg import spsolve
+from scipy.optimize import lsq_linear
 
 
 def _gauss_periodic(f, ds, sigma):
@@ -33,17 +33,26 @@ def _gauss_periodic(f, ds, sigma):
     return np.convolve(np.concatenate([f[-n:], f, f[:n]]), k, mode='same')[n:-n]
 
 
-def min_curvature_line(x, y, psi, kappa_c, ds, w_max, alpha=3e-6, smooth=10.0):
+def min_curvature_line(x, y, psi, kappa_c, ds, w_max, alpha=5e-6, smooth=3.0):
     """Return (n_ref, psi_ref, kappa_line, ds_seg) on the centerline grid.
 
-    Minimum-curvature offset via the regularized normal equations
-        (D2^T D2 + alpha I) w = -D2^T kappa_c ,
-    a periodic pentadiagonal system solved directly (fast, and smooth by
-    construction - no bang-bang against the corridor). The offset is then scaled
-    uniformly to fit within +/- w_max (scaling preserves smoothness), so the line
-    stays inside the track without introducing curvature kinks. `alpha` trades
-    curvature reduction against how far the raw solution reaches (a larger value
-    keeps it gentler); the scaling makes the exact value non-critical.
+    Minimum-curvature offset as the BOX-CONSTRAINED least-squares problem
+
+        minimize  || D2 w + kappa_c ||^2 + alpha || w ||^2   s.t.  |w| <= w_max
+
+    where (D2 w)[i] ~ w''(s_i), so D2 w + kappa_c is the (linearized) curvature of
+    the offset line. Solving with the corridor as a hard box constraint lets the line
+    ride the inside edge through an apex and swing wide on entry/exit - a real racing
+    line. This replaces an earlier formulation that solved unconstrained and then
+    scaled the WHOLE line down to make its single widest point fit the corridor, which
+    squashed every other corner toward the centre (a timid, centre-hugging line). The
+    `alpha` ridge pins the otherwise free constant lateral offset (D2's null space) and
+    keeps the system well posed; because the line's useful large offsets are LOW-curvature
+    (cheap under the D2 objective), alpha also trades how eagerly the line rides the
+    corridor edge (near 0 it hugs the edge bang-bang; ~5e-6 relaxes it toward the more
+    selective apexing of the true minimum-TIME line - keep it small or the line goes
+    timid). `smooth` gently rounds the junctions where the line meets the corridor edge
+    so the steer feedforward stays continuous.
 
     n_ref     lateral offset of the racing line [m], |n_ref| <= w_max
     psi_ref   heading of the line relative to the centerline [rad]
@@ -58,12 +67,12 @@ def min_curvature_line(x, y, psi, kappa_c, ds, w_max, alpha=3e-6, smooth=10.0):
     D2[N - 1, 0] = 1.0
     D2 = (D2.tocsr())/ds**2
 
-    H = (D2.T @ D2 + alpha*sparse.eye(N, format='csr')).tocsc()
-    w = spsolve(H, -(D2.T @ kappa_c))
-    w = _gauss_periodic(w, ds, smooth) if smooth else w
-    peak = np.abs(w).max()
-    if peak > w_max:
-        w *= w_max/peak
+    # stack the curvature objective with a sqrt(alpha) centering ridge, box-bounded solve
+    A = sparse.vstack([D2, np.sqrt(alpha)*sparse.eye(N, format='csr')]).tocsr()
+    b = np.concatenate([-kappa_c, np.zeros(N)])
+    w = lsq_linear(A, b, bounds=(-w_max, w_max), max_iter=300, tol=1e-10).x
+    if smooth:
+        w = np.clip(_gauss_periodic(w, ds, smooth), -w_max, w_max)
     dpsi_ref, kappa_line, ds_seg = offset_geometry(x, y, psi, ds, w)
     return w, dpsi_ref, kappa_line, ds_seg
 

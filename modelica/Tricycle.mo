@@ -671,8 +671,8 @@ table and overrides <code>sLap</code>/<code>u0</code> per track.</p></html>"));
       parameter Modelica.Units.SI.Velocity uMin = 1 "Low-speed guard";
       parameter Modelica.Units.SI.Length tMech = 0.025 "Mechanical (caster) trail";
       parameter Modelica.Units.SI.Length Larm = 0.11 "Steering-arm length";
-      parameter Modelica.Units.SI.Time tauSteer = 0.12
-        "Steer actuation lag (driver arm + linkage), road-wheel level";
+      parameter Modelica.Units.SI.Time tauSteer = 0.10
+        "Steer actuation lag (driver arm + linkage), road-wheel level (quick-handed club driver)";
       // powertrain / resistances
       parameter Modelica.Units.SI.Power Pmax = 150e3 "Peak drive power at the rear wheel";
       parameter Real kBf(min=0, max=1) = 0.65 "Front share of the brake force";
@@ -844,13 +844,13 @@ first-order road-wheel lag.</p></html>"));
       parameter Real Kus(unit="rad.s2/m") = 1.63e-3
         "Understeer gradient for the feedforward (analytic value of the tricycle)";
       parameter Modelica.Units.SI.Time TpV = 1.0 "Speed preview time";
-      parameter Modelica.Units.SI.Time TpFF = 0.4
-        "Steer-feedforward preview time: the curvature/dynamic feedforward is read this far ahead so it leads the actuator lag on turn-in (the lookahead error is still evaluated at the current station)";
+      parameter Modelica.Units.SI.Time TpFF = 0.6
+        "Steer-feedforward preview time: the curvature/dynamic feedforward is read this far ahead so it leads the actuator lag on turn-in (the lookahead error is still evaluated at the current station). A bigger preview lets the driver commit earlier to the racing line's apexes";
       parameter Modelica.Units.SI.Length xLA0 = 5.0 "Lookahead distance at rest";
       parameter Modelica.Units.SI.Time TLA = 0.25
         "Lookahead time: the path error is projected xLA = xLA0 + TLA*vx ahead. The speed-growing lookahead gives the feedback its phase lead, so a single fixed gain KLA stays stable to the limit of handling without gain-scheduling (Kapania & Gerdes 2015)";
-      parameter Real KLA(unit="rad/m") = 0.10
-        "Steer per meter of lookahead path error e_la = (n - n_ref) + xLA*(dpsi - psi_ref)";
+      parameter Real KLA(unit="rad/m") = 0.18
+        "Steer per meter of lookahead path error e_la = (n - n_ref) + xLA*(dpsi - psi_ref). Club-driver authority: firm enough to hold the committed minimum-curvature line without weaving";
       parameter Real Kr(unit="rad.s/rad") = 0.6
         "Damping on the yaw-rate error r - kappa_line*vx (weave damping; only acts on transients since it is zero in steady cornering)";
       parameter Modelica.Units.SI.Angle dMax = 0.35 "Smooth steer clamp";
