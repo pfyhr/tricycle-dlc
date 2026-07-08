@@ -29,10 +29,15 @@ canvas#world{position:fixed;inset:0;width:100vw;height:100vh;display:block}
 #session .grid .l{color:var(--ink-dim);font-size:9.5px;letter-spacing:1px;text-transform:uppercase;
   align-self:center;font-family:var(--sans)}
 #session .real{color:var(--accent)}
+#session .galink{display:inline-block;margin-top:9px;font-size:10.5px;letter-spacing:.5px;
+  color:var(--ink-dim);text-decoration:none;border-bottom:1px solid transparent}
+#session .galink:hover{color:var(--accent);border-bottom-color:var(--accent)}
 
 /* top-right: minimap + garage */
 #mini{top:14px;right:14px;padding:9px}
 #mini canvas{display:block}
+#track{width:212px;margin-top:8px;font-family:var(--sans);font-size:12.5px;color:var(--ink);
+  background:#1a1d1a;border:1px solid var(--panel-line);border-radius:7px;padding:6px 8px;cursor:pointer}
 #garage{top:236px;right:14px;width:230px}
 #garage select{width:100%;font-family:var(--sans);font-size:13px;color:var(--ink);
   background:#1a1d1a;border:1px solid var(--panel-line);border-radius:7px;padding:7px 9px;
@@ -111,9 +116,11 @@ input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;bac
     <span class="l">peak lat</span><span id="peakg">—</span>
     <span class="l">top speed</span><span id="vmax">—</span>
   </div>
+  <a class="galink" href="gallery.html">analysis gallery →</a>
 </div>
 
-<div class="hud" id="mini"><canvas id="minimap" width="212" height="212"></canvas></div>
+<div class="hud" id="mini"><canvas id="minimap" width="212" height="212"></canvas>
+  <select id="track" aria-label="track"></select></div>
 
 <div class="hud" id="garage">
   <h3>Car setup</h3>
@@ -158,7 +165,8 @@ input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;bac
 </div>
 
 <script>
-const D=__DATA__, T=D.track;
+const D=__DATA__;
+let T, curTrack;                 // current track table (switchable); set by buildGeom()
 const $=id=>document.getElementById(id);
 // ---- physics constants + fixed driver/profile calibration -----------------------
 const C={uMin:1,uPrevMin:5,tauSteer:0.10,tauRoll:0.15,tauPitch:0.20,TpV:1.0,TpFF:0.6,
@@ -166,7 +174,7 @@ const C={uMin:1,uPrevMin:5,tauSteer:0.10,tauRoll:0.15,tauPitch:0.20,TpV:1.0,TpFF
 const GRIP_DERATE=0.90;   // speed profile budgets the grip the plant actually sustains…
                           //   (lower = cleaner line but slower; higher = faster but runs wider)
 const MASS_EXP=0.5;       // …reduced further when the car is loaded past its design mass
-const KMUL=1.5;           // lookahead feedback gain multiplier (tighter line tracking)
+const KMUL=1.7;           // lookahead feedback gain multiplier (tighter line tracking)
 
 function interp(ys,xq){ // T.s is the shared monotone knot vector (0..L, N+1 pts)
   const xs=T.s; let x=((xq%T.L)+T.L)%T.L; let lo=0,hi=xs.length-1;
@@ -213,7 +221,12 @@ function deriv(y,P,vRef){
   const deltaFF=interp(T.deltaFF,s+up*C.TpFF);   // OCP sideslip steer FF (holds the min-time line)
   const xLA=C.xLA0+C.TLA*up, eLA=(n-nRef)+xLA*(dp-psiRef);
   const dCmd=C.dMax*Math.tanh(((P.Lwb+P.Kus*u*u)*kapLine+deltaFF-KMUL*P.KLA*eLA-P.Kr*(r-kapNow*u))/C.dMax);
-  const axCmd=(vRefP*vRefP-u*u)/(2*dPrev);
+  // longitudinal preview: follow the reference speed, but scan a braking horizon so the driver
+  // sheds speed early for a slow corner sitting beyond the fixed-time preview point. A single
+  // preview under-brakes into hairpins -> arrives hot -> understeers wide on exit.
+  let axCmd=(vRefP*vRefP-u*u)/(2*dPrev);
+  for(let d=8;d<=up*2.2+10;d+=6){const vq=interp(vRef,s+d);
+    if(vq<u){const a=(vq*vq-u*u)/(2*d); if(a<axCmd)axCmd=a;}}
   const aFL=delta-Math.atan((vy+P.a*r)/Math.max(u-r*P.tf/2,C.uMin));
   const aFR=delta-Math.atan((vy+P.a*r)/Math.max(u+r*P.tf/2,C.uMin));
   const aR=-Math.atan((vy-P.b*r)/uG);
@@ -245,7 +258,7 @@ function simulate(P){
   let y=[0,interp(T.nRef,0),interp(T.psiRef,0),vRef[0],0,0,0,0,0];
   const o={s:[],v:[],x:[],y:[],h:[],del:[],beta:[],ax:[],ay:[],yaw:[],vref:[]};
   let t=0,peak=0,vmax=0,st=0;
-  while(y[0]<T.L && st<40000){
+  while(y[0]<T.L && st<120000){
     const s=y[0], xc=interp(T.x,s),yc=interp(T.y,s),pc=interp(T.psiU,s);
     o.s.push(s);o.v.push(y[3]*3.6);o.x.push(xc-y[1]*Math.sin(pc));o.y.push(yc+y[1]*Math.cos(pc));
     o.h.push(pc+y[2]);o.del.push(y[6]);o.beta.push(Math.atan2(y[4],Math.max(y[3],1)));
@@ -263,13 +276,26 @@ let W,H,dpr=Math.min(devicePixelRatio||1,2), viewH=120;
 function resize(){W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;}
 addEventListener('resize',resize); resize();
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-const TX=T.x,TY=T.y,TK=T.kap_c,NP=T.n;
-// static road + kerb geometry (track is fixed; car varies)
-const road=new Path2D(); road.moveTo(TX[0],TY[0]);
-for(let i=1;i<=NP;i++)road.lineTo(TX[i%NP],TY[i%NP]); road.closePath();
-const kerbs=new Path2D();
-for(let i=0;i<NP;i++){ if(Math.abs(TK[i])>0.010){const j=(i+1)%NP;kerbs.moveTo(TX[i],TY[i]);kerbs.lineTo(TX[j],TY[j]);} }
+let TX,TY,TK,NP, road, kerbs, mmBase, mmap;
 const ROADW=8.4;
+// (re)build the static per-track geometry: road/kerb Path2D + prerendered minimap
+function buildGeom(name){
+  curTrack=name; T=D.tracks[name];
+  TX=T.x;TY=T.y;TK=T.kap_c;NP=T.n;
+  road=new Path2D(); road.moveTo(TX[0],TY[0]);
+  for(let i=1;i<=NP;i++)road.lineTo(TX[i%NP],TY[i%NP]); road.closePath();
+  kerbs=new Path2D();
+  for(let i=0;i<NP;i++){ if(Math.abs(TK[i])>0.010){const j=(i+1)%NP;kerbs.moveTo(TX[i],TY[i]);kerbs.lineTo(TX[j],TY[j]);} }
+  let xmin=1/0,xmax=-1/0,ymin=1/0,ymax=-1/0;
+  for(let i=0;i<NP;i++){ if(TX[i]<xmin)xmin=TX[i]; if(TX[i]>xmax)xmax=TX[i];
+    if(TY[i]<ymin)ymin=TY[i]; if(TY[i]>ymax)ymax=TY[i]; }
+  const pad=12,sz=212, kk=(sz-2*pad)/Math.max(xmax-xmin,ymax-ymin);
+  mmap=(x,y)=>[pad+(x-xmin)*kk+(sz-2*pad-(xmax-xmin)*kk)/2, sz-pad-(y-ymin)*kk-(sz-2*pad-(ymax-ymin)*kk)/2];
+  mmBase=document.createElement('canvas'); mmBase.width=mmBase.height=sz;
+  const b=mmBase.getContext('2d'); b.strokeStyle='rgba(232,230,223,.5)'; b.lineWidth=1.6; b.beginPath();
+  const[x0,y0]=mmap(TX[0],TY[0]); b.moveTo(x0,y0);
+  for(let i=1;i<NP;i++){const[xx,yy]=mmap(TX[i],TY[i]);b.lineTo(xx,yy);} b.closePath(); b.stroke();
+}
 function vcol(f){f=Math.max(0,Math.min(1,f));const r=Math.round(255*Math.min(1,Math.max(0,1.7*f-0.55)));
   const g=Math.round(255*Math.min(1,0.35+0.75*f));const b=Math.round(255*Math.max(0,0.75-1.2*f));return`rgb(${r},${g},${b})`;}
 function drawWorld(p){
@@ -314,16 +340,8 @@ function drawWorld(p){
   ctx.fillStyle=css('--accent'); ctx.fillRect(1.55,-0.5,0.32,1.0);
   ctx.restore();
 }
-// ---- minimap --------------------------------------------------------------------
-const mm=$('minimap'), mctx=mm.getContext('2d'); let mmBase, mmap; {
-  const xmin=Math.min(...TX),xmax=Math.max(...TX),ymin=Math.min(...TY),ymax=Math.max(...TY);
-  const pad=12,sz=212, kk=(sz-2*pad)/Math.max(xmax-xmin,ymax-ymin);
-  mmap=(x,y)=>[pad+(x-xmin)*kk+(sz-2*pad-(xmax-xmin)*kk)/2, sz-pad-(y-ymin)*kk-(sz-2*pad-(ymax-ymin)*kk)/2];
-  mmBase=document.createElement('canvas'); mmBase.width=mmBase.height=sz;
-  const b=mmBase.getContext('2d'); b.strokeStyle='rgba(232,230,223,.5)'; b.lineWidth=1.6; b.beginPath();
-  const[x0,y0]=mmap(TX[0],TY[0]); b.moveTo(x0,y0);
-  for(let i=1;i<NP;i++){const[xx,yy]=mmap(TX[i],TY[i]);b.lineTo(xx,yy);} b.closePath(); b.stroke();
-}
+// ---- minimap (path prerendered per track in buildGeom) --------------------------
+const mm=$('minimap'), mctx=mm.getContext('2d');
 function drawMini(p){
   mctx.clearRect(0,0,212,212); mctx.drawImage(mmBase,0,0);
   const[xx,yy]=mmap(p.x,p.y); mctx.fillStyle=css('--accent');
@@ -443,6 +461,10 @@ SL.forEach(([k,lab,mn,mx,st])=>{const el=document.createElement('label');el.clas
   el.innerHTML=`<span class="lab"><span>${lab}</span><span class="val" id="v_${k}"></span></span>
     <input type="range" id="s_${k}" min="${mn}" max="${mx}" step="${st}">`;sd.appendChild(el);});
 for(const[k,v] of Object.entries(D.presets)){const o=document.createElement('option');o.value=k;o.textContent=v.name;$('preset').appendChild(o);}
+for(const t of D.order){const o=document.createElement('option');o.value=t;o.textContent=D.names[t];$('track').appendChild(o);}
+$('track').addEventListener('change',e=>{ buildGeom(e.target.value); pb.t=0; run();
+  pb.playing=!matchMedia('(prefers-reduced-motion: reduce)').matches; pb.last=0;
+  $('play').textContent=pb.playing?'❚❚':'▶'; });
 function slVal(k){const [,, , , , unit,disp]=SL.find(a=>a[0]===k);const raw=k==='mu'?car.muF:car[k];
   return (disp?disp(raw):(k==='mu'?raw.toFixed(2):k==='ClA'?raw.toFixed(1):Math.round(raw)))+(unit?' '+unit:'');}
 function syncSliders(){SL.forEach(([k])=>{$('s_'+k).value=k==='mu'?car.muF:car[k];$('v_'+k).textContent=slVal(k);});}
@@ -457,8 +479,8 @@ function run(){
   const P=Object.assign({},car);
   P.CdA=car.CdA+0.10*P.ClA;                    // downforce drag penalty
   if(wet){P.muF*=0.72;P.muR*=0.72;P.mu*=0.72;}
-  R=simulate(P); R.tel=D.tel[$('preset').value]||null;
-  $('carname').textContent=car.name+' · '+D.trackName;
+  R=simulate(P); R.tel=(D.tel[curTrack]||{})[$('preset').value]||null;
+  $('carname').textContent=car.name+' · '+D.names[curTrack];
   $('lap').textContent=R.done?fmtT(R.lap):'DNF';
   $('ltot').textContent=fmtT(R.lap);
   $('peakg').textContent=R.peak.toFixed(2)+' g'; $('vmax').textContent=Math.round(R.vmax)+' km/h';
@@ -485,6 +507,7 @@ addEventListener('keydown',e=>{
 });
 addEventListener('resize',()=>{if(R){renderFrame();drawCharts();}});
 requestAnimationFrame(tick);
+buildGeom(D.default); $('track').value=D.default;
 $('preset').value='elise'; applyPreset('elise');
 if(!matchMedia('(prefers-reduced-motion: reduce)').matches){ pb.playing=true; $('play').textContent='❚❚'; }
 </script>

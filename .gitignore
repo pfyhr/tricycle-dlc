@@ -10,3 +10,4 @@ modelica/*.xml
 modelica/*.makefile
 modelica/*.libs
 modelica/*.log
+.webgui_ocp_cache.pkl

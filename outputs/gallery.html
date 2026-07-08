@@ -1,97 +1,4 @@
-"""Build the lap gallery: run every (car, track) combo through track_lap + track_render,
-then generate outputs/index.html - a browser page with track and car dropdowns that shows
-the speed-coloured map, the speed trace (with real-telemetry overlay where available), the
-lap time, and a link to the chase-cam player.
-
-Run:  python3 build_gallery.py [--cars a,b] [--tracks x,y] [--line optimal]
-Slow (one OpenModelica lap per combo); skips combos whose lap does not complete.
-"""
-import argparse, json, os, subprocess, sys
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, 'tracks'))
-from cars import CARS
-from fetch_track import TRACKS
-from telemetry import load_trace
-
-ap = argparse.ArgumentParser()
-ap.add_argument('--cars', default='tourer,elise,miata')
-ap.add_argument('--tracks', default='knutstorp,gelleras,anderstorp,kinnekulle,nordschleife')
-ap.add_argument('--line', default='optimal')
-ap.add_argument('--html-only', action='store_true', help='skip sims, rebuild index from gallery.json')
-A = ap.parse_args()
-CARS_L = [c for c in A.cars.split(',') if c in CARS]
-TRACKS_L = [t for t in A.tracks.split(',') if t in TRACKS]
-OUT = os.path.join(HERE, 'outputs')
-MANIFEST = os.path.join(OUT, 'gallery.json')
-
-
-def read_summary(stem):
-    p = os.path.join(OUT, f'{stem}_lap_summary.csv')
-    if not os.path.exists(p):
-        return None
-    d = {}
-    for ln in open(p).read().splitlines()[1:]:
-        parts = ln.split(',')
-        if len(parts) >= 2:
-            d[parts[0]] = parts[1]
-    return d
-
-
-def run_combo(car, track):
-    stem = f'{car}_{TRACKS[track]["prefix"]}'
-    print(f'--- {car} @ {track} ---', flush=True)
-    r = subprocess.run([sys.executable, 'track_lap.py', f'--track={track}',
-                        f'--car={car}', f'--line={A.line}'], cwd=HERE,
-                       capture_output=True, text=True)
-    summ = read_summary(stem)
-    if summ is None or 'lap_time' not in summ:
-        print(f'    FAILED: {r.stdout.strip().splitlines()[-1] if r.stdout else r.stderr[-200:]}')
-        return None
-    subprocess.run([sys.executable, 'track_render.py', f'--track={track}', f'--car={car}'],
-                   cwd=HERE, capture_output=True, text=True)
-    tel = load_trace(car, track)
-    lap = float(summ['lap_time'])
-    real = None
-    if tel is not None:
-        # real lap time (seconds) is stored in the trace CSV header comment "..., lap 68.0s, ..."
-        import re
-        hdr = open(os.path.join(HERE, 'tracks', 'telemetry', f'{car}_{track}.csv')).readline()
-        m = re.search(r'lap\s+([0-9.]+)s', hdr)
-        real = float(m.group(1)) if m else None
-    chase = f'{stem}_chase.html'
-    ok = os.path.exists(os.path.join(OUT, chase))
-    print(f'    lap {int(lap//60)}:{lap%60:04.1f}' + (f'  (real {real}s)' if real else ''))
-    return dict(car=car, track=track, stem=stem, lap=lap,
-                real_lap=real, chase=chase if ok else None,
-                vmax=summ.get('v_max'), rms=summ.get('line_tracking_rms'))
-
-
-def build_manifest():
-    # merge into any existing manifest so the matrix can be built in stages
-    combos = json.load(open(MANIFEST))['combos'] if os.path.exists(MANIFEST) else {}
-    for track in TRACKS_L:
-        for car in CARS_L:
-            c = run_combo(car, track)
-            if c:
-                combos[c['stem']] = c
-    # cars/tracks dropdowns reflect everything that has at least one completed combo
-    used_cars = {c['car'] for c in combos.values()}
-    used_trk = {c['track'] for c in combos.values()}
-    man = dict(
-        cars={c: CARS[c]['display'] for c in CARS if c in used_cars},
-        tracks={t: TRACKS[t]['display'] for t in TRACKS if t in used_trk},
-        combos=combos)
-    json.dump(man, open(MANIFEST, 'w'), indent=1)
-    return man
-
-
-def write_index(man):
-    html = INDEX.replace('__MANIFEST__', json.dumps(man, separators=(',', ':')))
-    open(os.path.join(OUT, 'gallery.html'), 'w').write(html)
-    print(f'\nwrote outputs/gallery.html ({len(man["combos"])} combos)')
-
-
-INDEX = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Tricycle — planar lap gallery</title>
 <style>
@@ -153,7 +60,7 @@ fastest recorded lap is overlaid on the simulated speed trace. For live setup sl
 </div>
 <div id="view"></div>
 <script>
-const M=__MANIFEST__;
+const M={"cars":{"tourer":"Sport Tourer (1650 kg, 150 kW)","elise":"Lotus Elise (862 kg, 118 hp)","miata":"Mazda MX-5 \"Oskar\" (980 kg, 140 hp)"},"tracks":{"nordschleife":"N\u00fcrburgring Nordschleife","knutstorp":"Ring Knutstorp","anderstorp":"Anderstorp Raceway","gelleras":"Geller\u00e5sen Arena","kinnekulle":"Kinnekulle Ring"},"combos":{"tourer_knutstorp":{"car":"tourer","track":"knutstorp","stem":"tourer_knutstorp","lap":89.2,"real_lap":null,"chase":"tourer_knutstorp_chase.html","vmax":"160.7","rms":"0.80"},"elise_knutstorp":{"car":"elise","track":"knutstorp","stem":"elise_knutstorp","lap":76.0,"real_lap":69.8,"chase":"elise_knutstorp_chase.html","vmax":"169.8","rms":"1.64"},"miata_knutstorp":{"car":"miata","track":"knutstorp","stem":"miata_knutstorp","lap":74.2,"real_lap":68.0,"chase":"miata_knutstorp_chase.html","vmax":"174.7","rms":"1.24"},"tourer_gelleras":{"car":"tourer","track":"gelleras","stem":"tourer_gelleras","lap":95.7,"real_lap":null,"chase":"tourer_gelleras_chase.html","vmax":"160.7","rms":"0.82"},"elise_gelleras":{"car":"elise","track":"gelleras","stem":"elise_gelleras","lap":81.9,"real_lap":null,"chase":"elise_gelleras_chase.html","vmax":"173.5","rms":"1.90"},"miata_gelleras":{"car":"miata","track":"gelleras","stem":"miata_gelleras","lap":79.9,"real_lap":null,"chase":"miata_gelleras_chase.html","vmax":"178.7","rms":"1.36"},"tourer_anderstorp":{"car":"tourer","track":"anderstorp","stem":"tourer_anderstorp","lap":136.0,"real_lap":null,"chase":"tourer_anderstorp_chase.html","vmax":"177.6","rms":"0.81"},"elise_anderstorp":{"car":"elise","track":"anderstorp","stem":"elise_anderstorp","lap":118.0,"real_lap":null,"chase":"elise_anderstorp_chase.html","vmax":"186.4","rms":"1.46"},"miata_anderstorp":{"car":"miata","track":"anderstorp","stem":"miata_anderstorp","lap":115.4,"real_lap":null,"chase":"miata_anderstorp_chase.html","vmax":"193.5","rms":"1.20"},"tourer_kinnekulle":{"car":"tourer","track":"kinnekulle","stem":"tourer_kinnekulle","lap":75.4,"real_lap":null,"chase":"tourer_kinnekulle_chase.html","vmax":"163.7","rms":"0.79"},"elise_kinnekulle":{"car":"elise","track":"kinnekulle","stem":"elise_kinnekulle","lap":64.1,"real_lap":null,"chase":"elise_kinnekulle_chase.html","vmax":"169.8","rms":"1.30"},"miata_kinnekulle":{"car":"miata","track":"kinnekulle","stem":"miata_kinnekulle","lap":62.8,"real_lap":null,"chase":"miata_kinnekulle_chase.html","vmax":"174.6","rms":"1.12"},"tourer_ns":{"car":"tourer","track":"nordschleife","stem":"tourer_ns","lap":639.2,"real_lap":null,"chase":"tourer_ns_chase.html","vmax":"229.6","rms":"0.98"}}};
 const $=id=>document.getElementById(id);
 const trackSel=$('track'), carSel=$('car');
 for(const [k,v] of Object.entries(M.tracks)){const o=document.createElement('option');o.value=k;o.textContent=v;trackSel.appendChild(o);}
@@ -183,9 +90,4 @@ const first=Object.values(M.combos)[0];
 if(first){trackSel.value=first.track;carSel.value=first.car;}
 render();
 </script>
-</div></body></html>"""
-
-
-if __name__ == '__main__':
-    man = json.load(open(MANIFEST)) if A.html_only else build_manifest()
-    write_index(man)
+</div></body></html>

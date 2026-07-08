@@ -1,71 +1,101 @@
-"""Build the live in-browser simulator (proof of concept): outputs/webgui.html.
+"""Build the live in-browser simulator: outputs/index.html (the site landing page).
 
 Ports the planar plant (Track.TrackTricycle, reduced: steer + roll/pitch load-transfer lags
 kept, tyre relaxation dropped), the lookahead driver (Track.TrackDriver), and the
 quasi-steady speed profile to JavaScript, so a full lap runs in the browser in a few ms.
-The racing line (min-curvature geometry) is fixed and car-independent; sliders change the
-CAR (mass, power, grip µ, downforce) plus a dry/wet toggle, and the lap re-solves live.
-Real telemetry is overlaid on the speed trace. One track (Knutstorp) for the POC.
+
+For each sim track the fixed, car-independent racing line is the 3-DOF minimum-TIME line
+(CasADi/IPOPT, solved once for the Elise), not the geometric min-curvature line: min-time
+positions wide on straights to straighten the next corner (e.g. sits LEFT onto Knutstorp's
+main straight) and picks true late apexes. Its sideslip steer feedforward (deltaFF) is baked
+too so the JS driver holds the aggressive line. Sliders change the CAR (mass, power, grip mu,
+downforce) plus a dry/wet toggle; a dropdown switches track. The lap re-solves live. Real
+telemetry (where logged) is overlaid on the speed trace.
 
 The UI adopts the Modelica chase-cam player's look (track_render.py): a full-viewport
-heading-up follow camera with floating HUD panels. The JS driver is tuned past the Modelica
-reference for clean on-line tracking (honest grip budget + mass-aware cornering limit +
-tighter lookahead feedback — see GRIP_DERATE/MASS_EXP/KMUL in webgui_template.html); it no
-longer matches Modelica lap times to the tenth by design (it drives a tidier, saner line).
+heading-up follow camera with floating HUD panels. The JS driver reflexes are tuned to a
+capable club driver (see GRIP_DERATE/MASS_EXP/KMUL + C.TpFF/tauSteer in webgui_template.html).
 """
-import json, os, sys
+import json, os, sys, re, pickle
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'tracks'))
 import numpy as np
 from speed_profile import load_centerline, speed_profile
-from racing_line import min_curvature_line, offset_geometry, _gauss_periodic
+from racing_line import min_curvature_line, offset_geometry, _gauss_periodic, apply_driver_margin
 from opt_lap import solve_min_time_dyn
 from cars import build_config, CARS
+from fetch_track import TRACKS
 from telemetry import load_trace
 
-TRACK = 'knutstorp'
-s, x, y, psi, kap = load_centerline(os.path.join(HERE, f'tracks/{TRACK}.csv'))
-ds = float(s[1] - s[0]); LTRK = float(s[-1] + ds)
-wMax = 10.0/2 - 0.9 - 0.2
-psiU = np.unwrap(psi)
+# cache the (slow) per-track OCP solves so line post-processing can be re-tuned cheaply;
+# invalidated by bumping CACHE_VER (delete .webgui_ocp_cache.pkl to force a full re-solve)
+CACHE_VER = 1
+CACHE = os.path.join(HERE, '.webgui_ocp_cache.pkl')
+_cache = {}
+if os.path.exists(CACHE):
+    with open(CACHE, 'rb') as f:
+        _cache = pickle.load(f)
 
-# Fixed, car-independent racing line: the 3-DOF minimum-TIME line (CasADi/IPOPT), not the
-# geometric min-curvature line. Min-time positions wide on straights to straighten the next
-# corner (e.g. sits LEFT onto Knutstorp's main straight, where min-curvature would centre it)
-# and picks true late apexes. The JS driver follows it as the car is varied; deltaFF gives it
-# the OCP's sideslip steer feedforward so it can hold the aggressive line. Solved once for the
-# Elise; the line geometry is close enough across the (fixed-line) car range.
-cfg0 = build_config('elise', 'base')
-nMC, psiMC, kMC, dsMC = min_curvature_line(x, y, psi, kap, ds, wMax)     # OCP warm start
-vMC, _ = speed_profile(s, kMC, ds_seg=dsMC, **cfg0['profile'])
-stride = max(int(round(10.0/ds)), int(np.ceil(len(s)/700)))
-sc, kc, vN = s[::stride], kap[::stride], vMC[::stride]
-wOcp = np.clip(wMax - 0.5 - 1.6*(vN/vN.max())**2, 0.3, wMax)   # inset where fast (run-wide ~v^2)
-print(f'solving webgui racing line: 3-DOF min-time OCP ({len(sc)} nodes)...')
-nOpt_c, ocp = solve_min_time_dyn(sc, kc, wOcp, p=cfg0['ocp'], grip_frac=cfg0['grip_frac'],
-                                 w_reg=4e-2, v_init=vN, n_init=nMC[::stride],
-                                 dpsi_init=psiMC[::stride])
-print(f'  IPOPT {"converged" if ocp["converged"] else "did NOT converge"}, T={ocp["T"]:.1f}s')
-Lc = sc[-1] + (sc[1] - sc[0])
-nRef = np.clip(_gauss_periodic(np.interp(s, np.append(sc, Lc), np.append(nOpt_c, nOpt_c[0])),
-                               ds, 6.0), -wMax, wMax)
-psiRef, kapLine, dsSeg = offset_geometry(x, y, psi, ds, nRef)
-# dynamic (sideslip) steer feedforward = OCP steer minus the kinematic part the driver adds
-dOcp = np.interp(s, np.append(sc, Lc), np.append(ocp['delta'], ocp['delta'][0]))
-uOcp = np.interp(s, np.append(sc, Lc), np.append(ocp['u'], ocp['u'][0]))
+# sim tracks (Knutstorp first = default); short tracks then the Nordschleife
+TLIST = ['knutstorp', 'anderstorp', 'gelleras', 'kinnekulle', 'nordschleife']
+CAR_HALF, EDGE = 0.9, 0.2
+cfg0 = build_config('elise', 'base')          # racing line solved for the Elise
 d0 = cfg0['driver']
-deltaFF = np.clip(_gauss_periodic(dOcp - (d0['Lwb'] + d0['Kus']*uOcp**2)*kapLine, ds, 6.0),
-                  -0.08, 0.08)
 
-wrap = lambda a: np.append(a, a[0]).tolist()          # periodic: append s=L point
-sW = np.append(s, LTRK).tolist()
-# psiU is the UNWRAPPED heading (winds ~2pi over the lap); at s=L continue it smoothly
-# (extrapolate) rather than snapping back to psiU[0], else interp swings 2pi across the seam
-psiUW = np.append(psiU, 2*psiU[-1] - psiU[-2]).tolist()
-TRK = dict(L=LTRK, ds=ds, width=10.0, n=len(s),
-           s=sW, x=wrap(x), y=wrap(y), psiU=psiUW, kap_c=wrap(kap),
-           nRef=wrap(nRef), psiRef=wrap(psiRef), kapLine=wrap(kapLine), dsSeg=wrap(dsSeg),
-           deltaFF=wrap(deltaFF))
+
+def rnd(a, n):
+    return [round(float(v), n) for v in a]
+
+
+def build_track(key):
+    """Load a centreline, solve the min-time racing line, return the JS track dict."""
+    s, x, y, psi, kap = load_centerline(os.path.join(HERE, f'tracks/{key}.csv'))
+    ds = float(s[1] - s[0]); L = float(s[-1] + ds)
+    width = TRACKS[key].get('width', 10.0)
+    wMax = width/2 - CAR_HALF - EDGE
+    psiU = np.unwrap(psi)
+    # min-curvature warm start, then the 3-DOF minimum-time OCP line
+    nMC, psiMC, kMC, dsMC = min_curvature_line(x, y, psi, kap, ds, wMax)
+    vMC, _ = speed_profile(s, kMC, ds_seg=dsMC, **cfg0['profile'])
+    stride = max(int(round(10.0/ds)), int(np.ceil(len(s)/700)))
+    sc, kc, vN = s[::stride], kap[::stride], vMC[::stride]
+    wOcp = np.clip(wMax - 0.5 - 1.6*(vN/vN.max())**2, 0.3, wMax)
+    o = _cache.get(key)                             # OCP inputs fixed per track; rm cache to re-solve
+    if o is not None and 'n' in o:
+        nOpt_c, dOcp_c, uOcp_c = o['n'], o['d'], o['u']
+        print(f'  {key}: OCP line (cached, T={o["T"]:.1f}s)', flush=True)
+    else:
+        print(f'  {key}: OCP min-time line ({len(sc)} nodes)...', flush=True)
+        nOpt_c, ocp = solve_min_time_dyn(sc, kc, wOcp, p=cfg0['ocp'], grip_frac=cfg0['grip_frac'],
+                                         w_reg=4e-2, v_init=vN, n_init=nMC[::stride],
+                                         dpsi_init=psiMC[::stride])
+        print(f'    IPOPT {"converged" if ocp["converged"] else "did NOT converge"}, '
+              f'T={ocp["T"]:.1f}s', flush=True)
+        nOpt_c, dOcp_c, uOcp_c = np.array(nOpt_c), np.array(ocp['delta']), np.array(ocp['u'])
+        _cache[key] = dict(n=nOpt_c, d=dOcp_c, u=uOcp_c, T=ocp['T'])
+        with open(CACHE, 'wb') as f:
+            pickle.dump(_cache, f)
+    Lc = sc[-1] + (sc[1] - sc[0])
+    nRef = np.clip(_gauss_periodic(np.interp(s, np.append(sc, Lc), np.append(nOpt_c, nOpt_c[0])),
+                                   ds, 6.0), -wMax, wMax)
+    psiRef, kapLine, dsSeg = offset_geometry(x, y, psi, ds, nRef)
+    # light driver margin: the JS lookahead driver overshoots the aggressive OCP line by up to
+    # ~0.6 m on the grippier cars; cap the line a touch (more where fast) so the tyres stay on
+    vLine, _ = speed_profile(s, kapLine, ds_seg=dsSeg, **cfg0['profile'])
+    nRef, psiRef, kapLine, dsSeg = apply_driver_margin(x, y, psi, ds, nRef, wMax, vLine,
+                                                       margin=0.6, k=1.2)
+    dOcp = np.interp(s, np.append(sc, Lc), np.append(dOcp_c, dOcp_c[0]))
+    uOcp = np.interp(s, np.append(sc, Lc), np.append(uOcp_c, uOcp_c[0]))
+    deltaFF = np.clip(_gauss_periodic(dOcp - (d0['Lwb'] + d0['Kus']*uOcp**2)*kapLine, ds, 6.0),
+                      -0.08, 0.08)
+    wrap = lambda a: np.append(a, a[0])
+    return dict(
+        L=round(L, 2), ds=round(ds, 3), width=width, n=len(s),
+        s=rnd(np.append(s, L), 2), x=rnd(wrap(x), 2), y=rnd(wrap(y), 2),
+        # psiU winds ~2pi/lap: continue it (extrapolate) at s=L, not snap to psiU[0]
+        psiU=rnd(np.append(psiU, 2*psiU[-1] - psiU[-2]), 4), kap_c=rnd(wrap(kap), 5),
+        nRef=rnd(wrap(nRef), 3), psiRef=rnd(wrap(psiRef), 4), kapLine=rnd(wrap(kapLine), 5),
+        dsSeg=rnd(wrap(dsSeg), 3), deltaFF=rnd(wrap(deltaFF), 4))
 
 
 def flat(car):
@@ -79,21 +109,27 @@ def flat(car):
                 Lwb=d['Lwb'], Kus=d['Kus'], KLA=d['KLA'], Kr=d['Kr'])
 
 
+print('solving racing lines:')
+TRK = {t: build_track(t) for t in TLIST}
+NAMES = {t: TRACKS[t]['display'] for t in TLIST}
 PRESETS = {c: flat(c) for c in ('elise', 'miata', 'tourer')}
-# telemetry per car (fraction, kmh) + real lap seconds from the CSV header
-TEL = {}
-for car in ('elise', 'miata'):
-    tr = load_trace(car, TRACK)
-    if tr is not None:
-        hdr = open(os.path.join(HERE, 'tracks', 'telemetry', f'{car}_{TRACK}.csv')).readline()
-        import re
-        m = re.search(r'lap\s+([0-9.]+)s', hdr)
-        TEL[car] = dict(frac=tr[0].tolist(), v=tr[1].tolist(),
-                        lap=float(m.group(1)) if m else None)
 
-DATA = dict(track=TRK, presets=PRESETS, tel=TEL, trackName='Ring Knutstorp')
+# real telemetry per (track, car): fraction, kmh, real lap seconds from the CSV header
+TEL = {}
+for t in TLIST:
+    for car in ('elise', 'miata'):
+        tr = load_trace(car, t)
+        if tr is None:
+            continue
+        hdr = open(os.path.join(HERE, 'tracks', 'telemetry', f'{car}_{t}.csv')).readline()
+        m = re.search(r'lap\s+([0-9.]+)s', hdr)
+        TEL.setdefault(t, {})[car] = dict(frac=rnd(tr[0], 4), v=rnd(tr[1], 1),
+                                          lap=float(m.group(1)) if m else None)
+
+DATA = dict(tracks=TRK, order=TLIST, names=NAMES, default='knutstorp',
+            presets=PRESETS, tel=TEL)
 html = open(os.path.join(HERE, 'webgui_template.html')).read()
 html = html.replace('__DATA__', json.dumps(DATA, separators=(',', ':')))
-out = os.path.join(HERE, 'outputs', 'webgui.html')
+out = os.path.join(HERE, 'outputs', 'index.html')
 open(out, 'w').write(html)
-print(f'wrote {out} ({len(html)//1024} kB)')
+print(f'wrote {out} ({len(html)//1024} kB, {len(TLIST)} tracks)')
