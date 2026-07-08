@@ -68,10 +68,8 @@ input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;bac
 .bar.t i{background:var(--good)} .bar.b i{background:var(--bad)}
 .bar .bl{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:4px;
   font-size:9px;color:var(--ink-dim);letter-spacing:1px}
-#steerwrap{display:flex;flex-direction:column;gap:4px;align-items:center}
-#steer{width:120px;height:10px;background:rgba(255,255,255,.07);border-radius:5px;position:relative}
-#steer i{position:absolute;top:1px;bottom:1px;width:8px;border-radius:4px;background:var(--accent);left:calc(50% - 4px)}
-#steer:after{content:'';position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:rgba(255,255,255,.25)}
+#steerwrap{display:flex;flex-direction:column;gap:5px;align-items:center}
+#steerc{display:block}
 #steerwrap .bl{font-size:9px;color:var(--ink-dim);letter-spacing:1px;text-transform:uppercase}
 
 /* bottom: playback control bar */
@@ -137,7 +135,7 @@ input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;bac
     <div class="bar t"><i id="thr"></i><span class="bl">THR</span></div>
     <div class="bar b"><i id="brk"></i><span class="bl">BRK</span></div>
   </div>
-  <div id="steerwrap"><div id="steer"><i id="sti"></i></div><span class="bl">steer</span></div>
+  <div id="steerwrap"><canvas id="steerc" width="64" height="64"></canvas><span class="bl">steer</span></div>
 </div>
 
 <div class="hud" id="charts">
@@ -212,8 +210,9 @@ function deriv(y,P,vRef){
   const up=Math.max(u,C.uPrevMin);
   const nRef=interp(T.nRef,s),psiRef=interp(T.psiRef,s),kapNow=interp(T.kapLine,s);
   const kapLine=interp(T.kapLine,s+up*C.TpFF), dPrev=up*C.TpV, vRefP=interp(vRef,s+dPrev);
+  const deltaFF=interp(T.deltaFF,s+up*C.TpFF);   // OCP sideslip steer FF (holds the min-time line)
   const xLA=C.xLA0+C.TLA*up, eLA=(n-nRef)+xLA*(dp-psiRef);
-  const dCmd=C.dMax*Math.tanh(((P.Lwb+P.Kus*u*u)*kapLine-KMUL*P.KLA*eLA-P.Kr*(r-kapNow*u))/C.dMax);
+  const dCmd=C.dMax*Math.tanh(((P.Lwb+P.Kus*u*u)*kapLine+deltaFF-KMUL*P.KLA*eLA-P.Kr*(r-kapNow*u))/C.dMax);
   const axCmd=(vRefP*vRefP-u*u)/(2*dPrev);
   const aFL=delta-Math.atan((vy+P.a*r)/Math.max(u-r*P.tf/2,C.uMin));
   const aFR=delta-Math.atan((vy+P.a*r)/Math.max(u+r*P.tf/2,C.uMin));
@@ -236,21 +235,24 @@ function deriv(y,P,vRef){
     (P.xiF*P.m*ay*P.hcg/P.tf-dFz)/C.tauRoll,(P.m*ax*P.hcg/L-dFzX)/C.tauPitch],ax,ay};
 }
 function simulate(P){
-  const vRef=profile(P);
-  let y=[0,interp(T.nRef,0),interp(T.psiRef,0),vRef[0],0,0,0,0,0];   // start on the line
-  const dt=0.006,o={s:[],v:[],x:[],y:[],h:[],del:[],beta:[],ax:[],ay:[],yaw:[],vref:[]};
-  let t=0,st=0,peak=0,vmax=0;
+  const vRef=profile(P), dt=0.006;
+  const rk4=y=>{const k1=deriv(y,P,vRef);
+    const y2=y.map((v,i)=>v+0.5*dt*k1.dy[i]),k2=deriv(y2,P,vRef);
+    const y3=y.map((v,i)=>v+0.5*dt*k2.dy[i]),k3=deriv(y3,P,vRef);
+    const y4=y.map((v,i)=>v+dt*k3.dy[i]),k4=deriv(y4,P,vRef);
+    return {y:y.map((v,i)=>v+dt/6*(k1.dy[i]+2*k2.dy[i]+2*k3.dy[i]+k4.dy[i])),k1};};
+  // start on the line at start/finish (mid-straight here, so vy=r=0 is already ~periodic)
+  let y=[0,interp(T.nRef,0),interp(T.psiRef,0),vRef[0],0,0,0,0,0];
+  const o={s:[],v:[],x:[],y:[],h:[],del:[],beta:[],ax:[],ay:[],yaw:[],vref:[]};
+  let t=0,peak=0,vmax=0,st=0;
   while(y[0]<T.L && st<40000){
     const s=y[0], xc=interp(T.x,s),yc=interp(T.y,s),pc=interp(T.psiU,s);
     o.s.push(s);o.v.push(y[3]*3.6);o.x.push(xc-y[1]*Math.sin(pc));o.y.push(yc+y[1]*Math.cos(pc));
     o.h.push(pc+y[2]);o.del.push(y[6]);o.beta.push(Math.atan2(y[4],Math.max(y[3],1)));
     o.yaw.push(y[5]*180/Math.PI);o.vref.push(interp(vRef,s)*3.6);
-    const k1=deriv(y,P,vRef); o.ax.push(k1.ax/C.g);o.ay.push(k1.ay/C.g);
-    peak=Math.max(peak,Math.abs(k1.ay)/C.g); vmax=Math.max(vmax,y[3]*3.6);
-    const y2=y.map((v,i)=>v+0.5*dt*k1.dy[i]),k2=deriv(y2,P,vRef);
-    const y3=y.map((v,i)=>v+0.5*dt*k2.dy[i]),k3=deriv(y3,P,vRef);
-    const y4=y.map((v,i)=>v+dt*k3.dy[i]),k4=deriv(y4,P,vRef);
-    y=y.map((v,i)=>v+dt/6*(k1.dy[i]+2*k2.dy[i]+2*k3.dy[i]+k4.dy[i])); t+=dt;st++;
+    const k=rk4(y); o.ax.push(k.k1.ax/C.g);o.ay.push(k.k1.ay/C.g);
+    peak=Math.max(peak,Math.abs(k.k1.ay)/C.g); vmax=Math.max(vmax,y[3]*3.6);
+    y=k.y; t+=dt; st++;
   }
   const vmn=Math.min(...o.v),vmx=Math.max(...o.v);
   return {o,lap:t,vRef,peak,vmax,dt,vmn,vmx,done:y[0]>=T.L};
@@ -289,11 +291,12 @@ function drawWorld(p){
   ctx.fillStyle='rgba(255,255,255,.7)';
   for(let i=-4;i<4;i++)for(let j=0;j<2;j++)if((i+j)%2===0)ctx.fillRect(j*0.8,i*1.3,0.8,1.3);
   ctx.restore();
-  // upcoming racing line coloured by speed
-  const idx=Math.round(p.t/R.dt), lo=Math.max(1,idx-160), hi=Math.min(R.o.x.length-1,idx+900);
+  // upcoming racing line coloured by speed — wrap indices past the seam so it stays continuous
+  const NN=R.o.x.length, idx=Math.round(p.t/R.dt);
   ctx.lineWidth=0.5; ctx.lineCap='round';
-  for(let i=lo;i<=hi;i++){ctx.strokeStyle=vcol((R.o.v[i]-R.vmn)/(R.vmx-R.vmn+1e-6));
-    ctx.beginPath();ctx.moveTo(R.o.x[i-1],R.o.y[i-1]);ctx.lineTo(R.o.x[i],R.o.y[i]);ctx.stroke();}
+  for(let k=idx-140;k<=idx+900;k++){const i=((k%NN)+NN)%NN, j=(((k-1)%NN)+NN)%NN;
+    ctx.strokeStyle=vcol((R.o.v[i]-R.vmn)/(R.vmx-R.vmn+1e-6));
+    ctx.beginPath();ctx.moveTo(R.o.x[j],R.o.y[j]);ctx.lineTo(R.o.x[i],R.o.y[i]);ctx.stroke();}
   ctx.lineCap='butt';
   // sideslip velocity vector
   const vh=p.h+p.beta, vl=Math.min(10,p.v*0.06+1.5);
@@ -339,6 +342,22 @@ function drawGGhud(p){
     gg.fillStyle=`rgba(232,193,90,${0.1+0.55*a})`;
     gg.beginPath();gg.arc(46+trail[i][0]*40,46-trail[i][1]*40,i===trail.length-1?3.5:2,0,7);gg.fill();}
 }
+// ---- steering wheel (rotates with steer; yellow marker at 12 o'clock) ------------
+const swc=$('steerc').getContext('2d');
+function drawWheel(del){
+  const g=swc; g.clearRect(0,0,64,64); const cx=32,cy=32,rr=23;
+  const ang=Math.max(-1,Math.min(1,del/C.dMax))*2.3;   // amplify road-wheel angle to wheel turn
+  g.strokeStyle=css('--ink-dim'); g.lineWidth=3; g.beginPath(); g.arc(cx,cy,rr,0,7); g.stroke();
+  g.save(); g.translate(cx,cy); g.rotate(ang);
+  g.strokeStyle=css('--ink-dim'); g.lineWidth=2.6; g.lineCap='round'; g.beginPath();
+  g.moveTo(0,0); g.lineTo(0,-rr);                       // top spoke
+  g.moveTo(0,0); g.lineTo(-rr*0.87,rr*0.5);             // lower-left spoke
+  g.moveTo(0,0); g.lineTo(rr*0.87,rr*0.5);              // lower-right spoke
+  g.stroke();
+  g.fillStyle=css('--ink-dim'); g.beginPath(); g.arc(0,0,4.5,0,7); g.fill();     // hub
+  g.fillStyle=css('--accent'); g.beginPath(); g.arc(0,-rr,4.5,0,7); g.fill();    // top marker
+  g.restore();
+}
 // ---- telemetry HUD (DOM) ---------------------------------------------------------
 const fmtSigned=(v,d,u)=>(v>=0?'+':'−')+Math.abs(v).toFixed(d)+' '+u;
 function drawTele(p){
@@ -349,8 +368,7 @@ function drawTele(p){
   $('axval').textContent=fmtSigned(p.ax,2,'g');
   $('thr').style.height=(Math.max(0,Math.min(p.ax/1.1,1))*100).toFixed(0)+'%';
   $('brk').style.height=(Math.max(0,Math.min(-p.ax/1.1,1))*100).toFixed(0)+'%';
-  $('sti').style.left=`calc(50% - 4px + ${(Math.max(-1,Math.min(1,p.del/0.35))*56).toFixed(1)}px)`;
-  drawGGhud(p); drawMini(p);
+  drawWheel(p.del); drawGGhud(p); drawMini(p);
 }
 // ---- charts (speed trace + g-g scatter) -----------------------------------------
 function cctx(id,h){const cvv=$(id),w=cvv.clientWidth||360;cvv.width=w*dpr;cvv.height=h*dpr;

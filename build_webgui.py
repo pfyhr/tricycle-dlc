@@ -18,7 +18,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'tracks'))
 import numpy as np
 from speed_profile import load_centerline, speed_profile
-from racing_line import min_curvature_line, apply_driver_margin
+from racing_line import min_curvature_line, offset_geometry, _gauss_periodic
+from opt_lap import solve_min_time_dyn
 from cars import build_config, CARS
 from telemetry import load_trace
 
@@ -28,21 +29,43 @@ ds = float(s[1] - s[0]); LTRK = float(s[-1] + ds)
 wMax = 10.0/2 - 0.9 - 0.2
 psiU = np.unwrap(psi)
 
-# fixed, car-independent racing line (min-curvature, inset for the driver overshoot using
-# the Elise-base speed as a reference); the JS driver follows it as the car is varied
+# Fixed, car-independent racing line: the 3-DOF minimum-TIME line (CasADi/IPOPT), not the
+# geometric min-curvature line. Min-time positions wide on straights to straighten the next
+# corner (e.g. sits LEFT onto Knutstorp's main straight, where min-curvature would centre it)
+# and picks true late apexes. The JS driver follows it as the car is varied; deltaFF gives it
+# the OCP's sideslip steer feedforward so it can hold the aggressive line. Solved once for the
+# Elise; the line geometry is close enough across the (fixed-line) car range.
 cfg0 = build_config('elise', 'base')
-nRef, psiRef, kapLine, dsSeg = min_curvature_line(x, y, psi, kap, ds, wMax)
-vMC, _ = speed_profile(s, kapLine, ds_seg=dsSeg, **cfg0['profile'])
-# light inset only: the tuned JS driver tracks the line tightly (rms ~0.9 m) so it no
-# longer needs the aggressive speed-dependent margin the old wide driver required
-nRef, psiRef, kapLine, dsSeg = apply_driver_margin(x, y, psi, ds, nRef, wMax, vMC,
-                                                   margin=0.3, k=0.5)
+nMC, psiMC, kMC, dsMC = min_curvature_line(x, y, psi, kap, ds, wMax)     # OCP warm start
+vMC, _ = speed_profile(s, kMC, ds_seg=dsMC, **cfg0['profile'])
+stride = max(int(round(10.0/ds)), int(np.ceil(len(s)/700)))
+sc, kc, vN = s[::stride], kap[::stride], vMC[::stride]
+wOcp = np.clip(wMax - 0.5 - 1.6*(vN/vN.max())**2, 0.3, wMax)   # inset where fast (run-wide ~v^2)
+print(f'solving webgui racing line: 3-DOF min-time OCP ({len(sc)} nodes)...')
+nOpt_c, ocp = solve_min_time_dyn(sc, kc, wOcp, p=cfg0['ocp'], grip_frac=cfg0['grip_frac'],
+                                 w_reg=4e-2, v_init=vN, n_init=nMC[::stride],
+                                 dpsi_init=psiMC[::stride])
+print(f'  IPOPT {"converged" if ocp["converged"] else "did NOT converge"}, T={ocp["T"]:.1f}s')
+Lc = sc[-1] + (sc[1] - sc[0])
+nRef = np.clip(_gauss_periodic(np.interp(s, np.append(sc, Lc), np.append(nOpt_c, nOpt_c[0])),
+                               ds, 6.0), -wMax, wMax)
+psiRef, kapLine, dsSeg = offset_geometry(x, y, psi, ds, nRef)
+# dynamic (sideslip) steer feedforward = OCP steer minus the kinematic part the driver adds
+dOcp = np.interp(s, np.append(sc, Lc), np.append(ocp['delta'], ocp['delta'][0]))
+uOcp = np.interp(s, np.append(sc, Lc), np.append(ocp['u'], ocp['u'][0]))
+d0 = cfg0['driver']
+deltaFF = np.clip(_gauss_periodic(dOcp - (d0['Lwb'] + d0['Kus']*uOcp**2)*kapLine, ds, 6.0),
+                  -0.08, 0.08)
 
 wrap = lambda a: np.append(a, a[0]).tolist()          # periodic: append s=L point
 sW = np.append(s, LTRK).tolist()
+# psiU is the UNWRAPPED heading (winds ~2pi over the lap); at s=L continue it smoothly
+# (extrapolate) rather than snapping back to psiU[0], else interp swings 2pi across the seam
+psiUW = np.append(psiU, 2*psiU[-1] - psiU[-2]).tolist()
 TRK = dict(L=LTRK, ds=ds, width=10.0, n=len(s),
-           s=sW, x=wrap(x), y=wrap(y), psiU=wrap(psiU), kap_c=wrap(kap),
-           nRef=wrap(nRef), psiRef=wrap(psiRef), kapLine=wrap(kapLine), dsSeg=wrap(dsSeg))
+           s=sW, x=wrap(x), y=wrap(y), psiU=psiUW, kap_c=wrap(kap),
+           nRef=wrap(nRef), psiRef=wrap(psiRef), kapLine=wrap(kapLine), dsSeg=wrap(dsSeg),
+           deltaFF=wrap(deltaFF))
 
 
 def flat(car):
