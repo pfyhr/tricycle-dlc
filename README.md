@@ -209,3 +209,7 @@ Constant speed; parallel steer (no Ackermann); no KPI/caster jacking; no scrub×
 lumped rear tire (slightly understeer-optimistic; front link loads unaffected); no roll
 DOF (roll-mode lag on load transfer instead); no steering column compliance or rack
 friction; tire parameters are textbook-typical, not fitted to a specific tire.
+
+## License
+
+Released under the [MIT License](LICENSE).
