@@ -44,10 +44,12 @@ select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .miss{padding:60px 20px;text-align:center;color:var(--muted);background:var(--panel);border:1px dashed var(--line);border-radius:14px}
 </style></head>
 <body><div class="wrap">
-<header><h1>Planar lap gallery</h1><span class="tag">tricycle · OpenModelica · min-curvature line</span></header>
+<header><h1>Planar lap gallery</h1><span class="tag">tricycle · OpenModelica · min-curvature line</span>
+<a class="chase" style="margin:0 0 0 auto;padding:8px 14px;font-size:13px" href="webgui.html">⚡ Live simulator</a></header>
 <p class="lede">A power- and grip-limited 3-DOF vehicle driven around real OSM circuits by a
 lookahead-preview driver. Pick a track and a car. Where real logger data exists, the
-fastest recorded lap is overlaid on the simulated speed trace.</p>
+fastest recorded lap is overlaid on the simulated speed trace. For live setup sliders
+(downforce, grip, ballast, balance), open the <a href="webgui.html">⚡ live simulator</a>.</p>
 <div class="controls">
   <div class="ctl"><label for="track">Track</label><select id="track"></select></div>
   <div class="ctl"><label for="car">Car</label><select id="car"></select></div>

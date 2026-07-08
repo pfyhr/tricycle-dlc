@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(HERE, 'tracks'))
 from speed_profile import load_centerline, speed_profile, write_track_table
 from racing_line import min_curvature_line
 from fetch_track import TRACKS
-from cars import CARS, override_string, ocp_params
+from cars import CARS, SETUPS, build_config, override_string
 from telemetry import load_trace
 
 ap = argparse.ArgumentParser()
@@ -27,17 +27,20 @@ ap.add_argument('--track', default='nordschleife', choices=list(TRACKS))
 ap.add_argument('--car', default='tourer', choices=list(CARS),
                 help='vehicle parameter set (tourer = original 1650 kg/150 kW, '
                      'elise = track-day Lotus Elise tuned to real telemetry)')
+ap.add_argument('--setup', default='base', choices=list(SETUPS),
+                help='setup option layered on the car (aero/wet/ballast/balance)')
 ap.add_argument('--line', default='optimal', choices=['optimal', 'center', 'ocp'],
                 help='minimum-curvature racing line (optimal), centerline following '
                      '(center), or provably min-time optimal control (ocp; needs casadi)')
 ap.add_argument('--width', type=float, default=None,
                 help='track width [m] override (default: per-track value)')
 args = ap.parse_args()
-TRACK, LINE, CAR = args.track, args.line, args.car
+TRACK, LINE, CAR, SETUP_NAME = args.track, args.line, args.car, args.setup
 CFG = TRACKS[TRACK]
 PFX, DISPLAY = CFG['prefix'], CFG['display']
-STEM = f'{CAR}_{PFX}'          # car-tagged output stem, e.g. elise_knutstorp
-CAR_DISPLAY = CARS[CAR]['display']
+STEM = f'{CAR}_{PFX}' + ('' if SETUP_NAME == 'base' else f'_{SETUP_NAME}')
+cfg = build_config(CAR, SETUP_NAME)
+CAR_DISPLAY = cfg['display'] + ('' if SETUP_NAME == 'base' else f' — {cfg["setup_label"]}')
 CAR_HALF = 0.9      # BW/2, must mirror the vehicle footprint
 EDGE_MARGIN = 0.2   # keep the tyres just inside the white line
 DRIVER_MARGIN = 0.4 # min-curve line: leave room for the driver's tracking overshoot
@@ -53,7 +56,7 @@ os.makedirs(SVG, exist_ok=True)
 
 # ---- vehicle setup (the car's profile params; the same car is pushed to the plant
 # via -override below, so the simulated tyre/mass/power match the line we build) ------
-SETUP = dict(CARS[CAR]['profile'])
+SETUP = dict(cfg['profile'])
 LAP_VARS = ('time|s|n|vKmh|vRefKmh|ayG|axG|deltaDeg|dpsiDeg|yawRateDegS|betaDeg|'
             'FtieL|FtieR|FxR|Pdrive|FzFL|FzFR')
 
@@ -87,8 +90,8 @@ if LINE in ('optimal', 'ocp') and wMax > 0.3:
               f'corridor +/-{wOcp.min():.1f}-{wOcp.max():.1f} m)...')
         # grip_frac 0.93 matches the plant's realised peak; w_reg gentles the steer rate
         # so the optimal transitions stay within the preview driver's tracking bandwidth
-        nOpt_c, ocp = solve_min_time_dyn(sc, kc, wOcp, p=ocp_params(CAR),
-                                         grip_frac=CARS[CAR]['grip_frac'], w_reg=4e-2,
+        nOpt_c, ocp = solve_min_time_dyn(sc, kc, wOcp, p=cfg['ocp'],
+                                         grip_frac=cfg['grip_frac'], w_reg=4e-2,
                                          v_init=vMC[::stride], n_init=nRef[::stride],
                                          dpsi_init=psiRef[::stride])
         tOcp = ocp['T']
@@ -107,7 +110,7 @@ if LINE in ('optimal', 'ocp') and wMax > 0.3:
         # the aggressive optimal line (Kapania-Gerdes feedforward+feedback).
         dOcp = np.interp(s, np.append(sc, Lc), np.append(ocp['delta'], ocp['delta'][0]))
         uOcp = np.interp(s, np.append(sc, Lc), np.append(ocp['u'], ocp['u'][0]))
-        drv = CARS[CAR]['driver']
+        drv = cfg['driver']
         deltaFF = dOcp - (drv['Lwb'] + drv['Kus']*uOcp**2)*kapLine
         # de-ripple and bound the feedforward: keep the useful low-frequency sideslip
         # steer, drop the spikes that would just saturate the road-wheel clamp
@@ -135,7 +138,7 @@ print(f'{DISPLAY} ({tag}): centerline L = {LTRK:.0f} m, path {pathLen:.0f} m; '
       f'(driver will be a bit slower)')
 
 # ---- 2. simulate -------------------------------------------------------------------
-override = override_string(CAR, LTRK, vRef[0])
+override = override_string(cfg, LTRK, vRef[0])
 mos = (f'loadModel(Modelica); loadFile("Tricycle.mo");\n'
        f'simulate(Tricycle.Examples.TrackLap, stopTime=900, '
        f'numberOfIntervals=18000, outputFormat="csv", variableFilter="{LAP_VARS}", '

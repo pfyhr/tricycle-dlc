@@ -38,15 +38,17 @@ def _car(display, m, Pmax, CdA, Crr, rho, mu, ayFrac, hcg, a, b,
     )
 
 
-def ocp_params(car):
-    """Build the 3-DOF OCP parameter dict (tracks/opt_lap.solve_min_time_dyn) from a car.
-    The OCP tyres are per-AXLE: front axle = 2x the Modelica per-wheel front, rear axle =
-    the lumped rear. For `tourer` this reproduces opt_lap.PARAMS_DYN exactly."""
-    c = CARS[car]; t = c['trike']
+def ocp_params(c):
+    """Build the 3-DOF OCP parameter dict (tracks/opt_lap.solve_min_time_dyn) from a config
+    (build_config output). The OCP tyres are per-AXLE: front axle = 2x the Modelica per-wheel
+    front, rear axle = the lumped rear. For `tourer`/base this reproduces PARAMS_DYN exactly.
+    ClA/aeroBal (downforce) pass through so the friction ellipse grows with speed."""
+    t = c['trike']
     return dict(
         m=t['m'], Izz=t['Izz'], a=t['a'], b=t['b'], hcg=t['hcg'],
         Pmax=c['Pmax'], CdA=t['CdA'], Crr=t['Crr'], rho=t['rho'], kBf=t['kBf'],
         mu=t['muF'], dMax=0.35, vmin=8.0, vmax=120.0,
+        ClA=t.get('ClA', 0.0), aeroBal=t.get('aeroBal', 0.45),
         tireF=dict(c1=2*t['c1F'], c2=2*t['c2F'], FzNom=2*t['FzNomF'], ap0=t['ap0F']),
         tireR=dict(c1=t['c1R'], c2=t['c2R'], FzNom=t['FzNomR'], ap0=t['ap0R']))
 
@@ -86,9 +88,44 @@ CARS = {
 }
 
 
-def override_string(car, sLap, u0):
-    """Build the OMC simflags -override list for a car (plus run-specific sLap/u0)."""
-    c = CARS[car]
+import copy
+
+# Setup options layered on any car. Each is a single-axis variation from baseline: pure
+# parameter changes that the Modelica plant already supports. (Downforce lives only in the
+# live JS simulator - build_webgui.py - since it adds speed-dependent grip the Modelica
+# plant doesn't model yet. ClA/aeroBal are still threaded through so the OCP could use it.)
+SETUPS = {
+    'base':       dict(label='Baseline'),
+    'wet':        dict(label='Wet track', mu_scale=0.72),
+    'ballast_lo': dict(label='Ballast −50 kg', dm=-50.0),
+    'ballast_hi': dict(label='Ballast +50 kg', dm=+50.0),
+    'oversteer':  dict(label='Loose (oversteer)', dxiF=-0.12),
+    'understeer': dict(label='Tight (understeer)', dxiF=+0.12),
+}
+
+
+def build_config(car, setup='base'):
+    """Return a deep copy of a car with a setup applied, plus its derived OCP params.
+    Keys: display, setup, setup_label, Pmax, grip_frac, profile, trike, driver, ocp."""
+    c = copy.deepcopy(CARS[car])
+    s = SETUPS[setup]
+    muS = s.get('mu_scale', 1.0)
+    dm, dxiF, dCdA = s.get('dm', 0.0), s.get('dxiF', 0.0), s.get('dCdA', 0.0)
+    ClA, aeroBal = s.get('ClA', 0.0), s.get('aeroBal', 0.45)
+    p, t = c['profile'], c['trike']
+    p['mu'] *= muS;  p['m'] += dm;  p['CdA'] += dCdA
+    t['muF'] *= muS; t['muR'] *= muS; t['m'] += dm; t['CdA'] += dCdA
+    t['xiF'] = min(0.9, max(0.1, t['xiF'] + dxiF))
+    if ClA:                       # downforce: profile + plant + OCP all see the aero map
+        p['ClA'], p['aeroBal'] = ClA, aeroBal
+        t['ClA'], t['aeroBal'] = ClA, aeroBal
+    c['ocp'] = ocp_params(c)
+    c['setup'], c['setup_label'] = setup, s['label']
+    return c
+
+
+def override_string(c, sLap, u0):
+    """Build the OMC simflags -override list from a config (plus run-specific sLap/u0)."""
     parts = [f'sLap={sLap:.1f}', f'u0={u0:.2f}', f'Pmax={c["Pmax"]:.0f}']
     parts += [f'trike.{k}={v:g}' for k, v in c['trike'].items()]
     parts += [f'driver.{k}={v:g}' for k, v in c['driver'].items()]
