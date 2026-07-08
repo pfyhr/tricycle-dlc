@@ -20,6 +20,7 @@ from speed_profile import load_centerline, speed_profile, write_track_table
 from racing_line import min_curvature_line
 from fetch_track import TRACKS
 from cars import CARS, override_string, ocp_params
+from telemetry import load_trace
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--track', default='nordschleife', choices=list(TRACKS))
@@ -35,6 +36,8 @@ args = ap.parse_args()
 TRACK, LINE, CAR = args.track, args.line, args.car
 CFG = TRACKS[TRACK]
 PFX, DISPLAY = CFG['prefix'], CFG['display']
+STEM = f'{CAR}_{PFX}'          # car-tagged output stem, e.g. elise_knutstorp
+CAR_DISPLAY = CARS[CAR]['display']
 CAR_HALF = 0.9      # BW/2, must mirror the vehicle footprint
 EDGE_MARGIN = 0.2   # keep the tyres just inside the white line
 DRIVER_MARGIN = 0.4 # min-curve line: leave room for the driver's tracking overshoot
@@ -136,12 +139,12 @@ override = override_string(CAR, LTRK, vRef[0])
 mos = (f'loadModel(Modelica); loadFile("Tricycle.mo");\n'
        f'simulate(Tricycle.Examples.TrackLap, stopTime=900, '
        f'numberOfIntervals=18000, outputFormat="csv", variableFilter="{LAP_VARS}", '
-       f'fileNamePrefix="build/{PFX}_lap", '
+       f'fileNamePrefix="build/{STEM}_lap", '
        f'simflags="{override}"); getErrorString();\n')
 open('/tmp/trike_nslap.mos', 'w').write(mos)
 r = subprocess.run([OMC, '/tmp/trike_nslap.mos'], cwd=MOD, check=True,
                    capture_output=True, text=True)
-RES = os.path.join(MOD, f'build/{PFX}_lap_res.csv')
+RES = os.path.join(MOD, f'build/{STEM}_lap_res.csv')
 if not os.path.exists(RES):
     sys.exit('simulation produced no result file:\n' + r.stdout[-2000:])
 d = np.genfromtxt(RES, delimiter=',', names=True)
@@ -172,7 +175,7 @@ xCar = np.interp(sMod, sq, per(x)) - d['n']*np.sin(np.interp(sMod, sq, psiU))
 yCar = np.interp(sMod, sq, per(y)) + d['n']*np.cos(np.interp(sMod, sq, psiU))
 
 # ---- 3. summary CSV ----------------------------------------------------------------
-with open(os.path.join(HERE, f'outputs/{PFX}_lap_summary.csv'), 'w') as f:
+with open(os.path.join(HERE, f'outputs/{STEM}_lap_summary.csv'), 'w') as f:
     f.write('quantity,value,unit\n')
     f.write(f'track,{DISPLAY},-\n')
     f.write(f'line,{LINE},-\n')
@@ -215,15 +218,20 @@ a.set_ylim(yCar.min() - 200, yCar.max() + 200)
 a.set_aspect('equal'); a.grid(alpha=.3); a.legend(loc='best', fontsize=8)
 a.set_xlabel('x [m]'); a.set_ylabel('y [m]')
 tag_ocp = f' (OCP bound {int(tOcp//60)}:{tOcp % 60:04.1f})' if tOcp is not None else ''
-a.set_title(f'{DISPLAY} (planar, OSM) — {LINE_LABEL} — lap {int(tLap//60)}:{tLap % 60:04.1f}'
+a.set_title(f'{DISPLAY} — {CAR_DISPLAY} — {LINE_LABEL}\nlap {int(tLap//60)}:{tLap % 60:04.1f}'
             f'{tag_ocp} at {SETUP["Pmax"]/1e3:.0f} kW / {SETUP["m"]:.0f} kg')
-plt.tight_layout(); plt.savefig(f'{SVG}/{PFX}_map.svg', facecolor='white'); plt.close()
+plt.tight_layout(); plt.savefig(f'{SVG}/{STEM}_map.svg', facecolor='white'); plt.close()
 
 # ---- 5. speed trace vs reference + lateral offset ---------------------------------
 fig, ax = plt.subplots(2, 1, figsize=(10, 6), sharex=True,
                        gridspec_kw={'height_ratios': [2.4, 1]})
 ax[0].plot(d['s']/1000, d['vRefKmh'], 'k--', lw=0.9, label='minimum-time reference (previewed)')
 ax[0].plot(d['s']/1000, d['vKmh'], color='tab:blue', lw=1.2, label='vehicle')
+tel = load_trace(CAR, TRACK)          # real logger trace, if we have one for this car+track
+if tel is not None:
+    frac, vReal = tel
+    ax[0].plot(frac*LTRK/1000, vReal, color='tab:orange', lw=1.1, ls=(0, (5, 2)),
+               alpha=0.9, label='real telemetry (fastest logged lap)')
 ax[0].set_ylabel('speed [km/h]'); ax[0].legend(loc='lower right', fontsize=8)
 ax[0].grid(alpha=.3)
 ax[0].set_title('speed tracking and lateral offset over the lap')
@@ -235,7 +243,7 @@ ax[1].plot(d['s']/1000, d['n'], color='tab:red', lw=1, label='vehicle')
 ax[1].axhline(0, color='k', lw=.6)
 ax[1].set_ylabel('offset n [m]'); ax[1].set_xlabel('distance s [km]')
 ax[1].grid(alpha=.3); ax[1].legend(loc='upper right', fontsize=7, ncol=3)
-plt.tight_layout(); plt.savefig(f'{SVG}/{PFX}_speed.svg', facecolor='white'); plt.close()
+plt.tight_layout(); plt.savefig(f'{SVG}/{STEM}_speed.svg', facecolor='white'); plt.close()
 
 # ---- 6. g-g diagram ----------------------------------------------------------------
 fig, a = plt.subplots(figsize=(5.6, 5.6))
@@ -246,7 +254,7 @@ a.plot(0.855*np.cos(th), 0.855*np.sin(th), 'k--', lw=0.8,
 a.set_xlabel('lateral acceleration [g]'); a.set_ylabel('longitudinal acceleration [g]')
 a.set_aspect('equal'); a.grid(alpha=.3); a.legend(fontsize=8, loc='upper right')
 a.set_title('g-g diagram over the lap (color: speed)')
-plt.tight_layout(); plt.savefig(f'{SVG}/{PFX}_gg.svg', facecolor='white'); plt.close()
+plt.tight_layout(); plt.savefig(f'{SVG}/{STEM}_gg.svg', facecolor='white'); plt.close()
 
 # ---- 7. tie-rod forces over the lap ------------------------------------------------
 fig, a = plt.subplots(figsize=(10, 4))
@@ -255,7 +263,7 @@ a.plot(d['s']/1000, d['FtieR']/1000, color='tab:red', lw=0.9, alpha=0.8, label='
 a.set_xlabel('distance s [km]'); a.set_ylabel('tie-rod force [kN]')
 a.grid(alpha=.3); a.legend(fontsize=8)
 a.set_title(f'steering-link loads over one {DISPLAY} lap')
-plt.tight_layout(); plt.savefig(f'{SVG}/{PFX}_tierod.svg', facecolor='white'); plt.close()
+plt.tight_layout(); plt.savefig(f'{SVG}/{STEM}_tierod.svg', facecolor='white'); plt.close()
 
-print(f'wrote outputs/{PFX}_lap_summary.csv and 4 SVGs to outputs/svg/')
-print(f'renderer: python3 track_render.py --track={TRACK}')
+print(f'wrote outputs/{STEM}_lap_summary.csv and 4 SVGs to outputs/svg/')
+print(f'renderer: python3 track_render.py --track={TRACK} --car={CAR}')

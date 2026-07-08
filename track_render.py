@@ -13,19 +13,23 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'tracks'))
 from speed_profile import load_centerline
 from fetch_track import TRACKS
+from cars import CARS
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--track', default='nordschleife', choices=list(TRACKS))
-TRACK = ap.parse_args().track
+ap.add_argument('--car', default='tourer', choices=list(CARS))
+args = ap.parse_args()
+TRACK, CAR = args.track, args.car
 CFG = TRACKS[TRACK]
+STEM = f"{CAR}_{CFG['prefix']}"
 
-RES = os.path.join(HERE, f"modelica/build/{CFG['prefix']}_lap_res.csv")
-OUT = os.path.join(HERE, f"outputs/{CFG['prefix']}_chase.html")
+RES = os.path.join(HERE, f"modelica/build/{STEM}_lap_res.csv")
+OUT = os.path.join(HERE, f"outputs/{STEM}_chase.html")
 FPS = 10          # embedded telemetry rate; the player interpolates
-PMAX = 150e3      # must mirror the run (throttle bar = Pdrive/Pmax)
+PMAX = CARS[CAR]['Pmax']   # must mirror the run (throttle bar = Pdrive/Pmax)
 
 if not os.path.exists(RES):
-    sys.exit(f'no simulation result - run track_lap.py --track={TRACK} first')
+    sys.exit(f'no simulation result - run track_lap.py --track={TRACK} --car={CAR} first')
 
 s, xc, yc, psic, kap = load_centerline(os.path.join(HERE, f'tracks/{TRACK}.csv'))
 ds = s[1] - s[0]
@@ -314,7 +318,7 @@ requestAnimationFrame(t0 => { last = t0; requestAnimationFrame(frame); });
 """
 
 html = HTML.replace('__DATA__', json.dumps(data, separators=(',', ':')))
-html = html.replace('__TRACK__', CFG['display'])
+html = html.replace('__TRACK__', f"{CFG['display']} — {CARS[CAR]['display']}")
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 open(OUT, 'w').write(html)
 kb = os.path.getsize(OUT)/1024

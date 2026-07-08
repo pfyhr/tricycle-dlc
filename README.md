@@ -98,7 +98,7 @@ centerline following:
 
 The racing line is 3.5–5 % quicker, and the car tracks it to within ~0.8 m rms.
 
-![Nordschleife racing line colored by speed](outputs/svg/ns_map.svg)
+![Nordschleife racing line colored by speed](outputs/svg/tourer_ns_map.svg)
 
 ```
 python3 tracks/fetch_track.py --track=all         # (re)build centerlines from OSM - needs network

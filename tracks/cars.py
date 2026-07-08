@@ -73,6 +73,16 @@ CARS = {
         Kus=1.0e-3,           # near-neutral mid-engine, mild understeer for stability
         KLA=0.30,             # higher lookahead gain: the grippier car wants tighter feedback
         grip_frac=0.88),      # plant realizes ~1.40 g of the 1.60 nominal mu
+
+    'miata': _car(
+        'Mazda MX-5 "Oskar" (980 kg, 140 hp)',
+        m=980, Pmax=104e3, CdA=0.66, Crr=0.012, rho=1.20, mu=1.68, ayFrac=0.90,
+        hcg=0.48, a=1.15, b=1.15,          # L=2.30 m, front-engine RWD ~50/50
+        Izz=1300, tf=1.41, xiF=0.50, kBf=0.62,
+        # track tyres: realized ~1.5 g lateral; loads scaled to ~2400 N front / 4800 N rear
+        c1F=4.2e4, c1R=8.4e4, c2F=2400, c2R=4800,
+        FzNomF=2400, FzNomR=4800, ap0F=0.055, ap0R=0.075,
+        Kus=1.2e-3, KLA=0.28, grip_frac=0.88),
 }
 
 

@@ -1,0 +1,189 @@
+"""Build the lap gallery: run every (car, track) combo through track_lap + track_render,
+then generate outputs/index.html - a browser page with track and car dropdowns that shows
+the speed-coloured map, the speed trace (with real-telemetry overlay where available), the
+lap time, and a link to the chase-cam player.
+
+Run:  python3 build_gallery.py [--cars a,b] [--tracks x,y] [--line optimal]
+Slow (one OpenModelica lap per combo); skips combos whose lap does not complete.
+"""
+import argparse, json, os, subprocess, sys
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, 'tracks'))
+from cars import CARS
+from fetch_track import TRACKS
+from telemetry import load_trace
+
+ap = argparse.ArgumentParser()
+ap.add_argument('--cars', default='tourer,elise,miata')
+ap.add_argument('--tracks', default='knutstorp,gelleras,anderstorp,kinnekulle,nordschleife')
+ap.add_argument('--line', default='optimal')
+ap.add_argument('--html-only', action='store_true', help='skip sims, rebuild index from gallery.json')
+A = ap.parse_args()
+CARS_L = [c for c in A.cars.split(',') if c in CARS]
+TRACKS_L = [t for t in A.tracks.split(',') if t in TRACKS]
+OUT = os.path.join(HERE, 'outputs')
+MANIFEST = os.path.join(OUT, 'gallery.json')
+
+
+def read_summary(stem):
+    p = os.path.join(OUT, f'{stem}_lap_summary.csv')
+    if not os.path.exists(p):
+        return None
+    d = {}
+    for ln in open(p).read().splitlines()[1:]:
+        parts = ln.split(',')
+        if len(parts) >= 2:
+            d[parts[0]] = parts[1]
+    return d
+
+
+def run_combo(car, track):
+    stem = f'{car}_{TRACKS[track]["prefix"]}'
+    print(f'--- {car} @ {track} ---', flush=True)
+    r = subprocess.run([sys.executable, 'track_lap.py', f'--track={track}',
+                        f'--car={car}', f'--line={A.line}'], cwd=HERE,
+                       capture_output=True, text=True)
+    summ = read_summary(stem)
+    if summ is None or 'lap_time' not in summ:
+        print(f'    FAILED: {r.stdout.strip().splitlines()[-1] if r.stdout else r.stderr[-200:]}')
+        return None
+    subprocess.run([sys.executable, 'track_render.py', f'--track={track}', f'--car={car}'],
+                   cwd=HERE, capture_output=True, text=True)
+    tel = load_trace(car, track)
+    lap = float(summ['lap_time'])
+    real = None
+    if tel is not None:
+        # real lap time (seconds) is stored in the trace CSV header comment "..., lap 68.0s, ..."
+        import re
+        hdr = open(os.path.join(HERE, 'tracks', 'telemetry', f'{car}_{track}.csv')).readline()
+        m = re.search(r'lap\s+([0-9.]+)s', hdr)
+        real = float(m.group(1)) if m else None
+    chase = f'{stem}_chase.html'
+    ok = os.path.exists(os.path.join(OUT, chase))
+    print(f'    lap {int(lap//60)}:{lap%60:04.1f}' + (f'  (real {real}s)' if real else ''))
+    return dict(car=car, track=track, stem=stem, lap=lap,
+                real_lap=real, chase=chase if ok else None,
+                vmax=summ.get('v_max'), rms=summ.get('line_tracking_rms'))
+
+
+def build_manifest():
+    # merge into any existing manifest so the matrix can be built in stages
+    combos = json.load(open(MANIFEST))['combos'] if os.path.exists(MANIFEST) else {}
+    for track in TRACKS_L:
+        for car in CARS_L:
+            c = run_combo(car, track)
+            if c:
+                combos[c['stem']] = c
+    # cars/tracks dropdowns reflect everything that has at least one completed combo
+    used_cars = {c['car'] for c in combos.values()}
+    used_trk = {c['track'] for c in combos.values()}
+    man = dict(
+        cars={c: CARS[c]['display'] for c in CARS if c in used_cars},
+        tracks={t: TRACKS[t]['display'] for t in TRACKS if t in used_trk},
+        combos=combos)
+    json.dump(man, open(MANIFEST, 'w'), indent=1)
+    return man
+
+
+def write_index(man):
+    html = INDEX.replace('__MANIFEST__', json.dumps(man, separators=(',', ':')))
+    open(os.path.join(OUT, 'index.html'), 'w').write(html)
+    print(f'\nwrote outputs/index.html ({len(man["combos"])} combos)')
+
+
+INDEX = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tricycle — planar lap gallery</title>
+<style>
+:root{
+  --bg:#f4f5f7; --panel:#ffffff; --ink:#1b1e24; --muted:#5b6270; --line:#e2e5ea;
+  --accent:#c8102e; --accent2:#0a7d5a; --shadow:0 1px 3px rgba(20,24,32,.08),0 8px 24px rgba(20,24,32,.06);
+  --sans:'Helvetica Neue',Arial,sans-serif; --mono:'SF Mono',ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0e1013; --panel:#171a1f; --ink:#e8eaee; --muted:#9aa2b0; --line:#272c34;
+  --accent:#ff4d63; --accent2:#2fd39b; --shadow:0 1px 3px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);}}
+:root[data-theme=dark]{--bg:#0e1013;--panel:#171a1f;--ink:#e8eaee;--muted:#9aa2b0;--line:#272c34;--accent:#ff4d63;--accent2:#2fd39b;--shadow:0 1px 3px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);}
+:root[data-theme=light]{--bg:#f4f5f7;--panel:#fff;--ink:#1b1e24;--muted:#5b6270;--line:#e2e5ea;--accent:#c8102e;--accent2:#0a7d5a;--shadow:0 1px 3px rgba(20,24,32,.08),0 8px 24px rgba(20,24,32,.06);}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding:32px 20px 64px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px 18px;margin-bottom:6px}
+h1{font-size:24px;font-weight:700;letter-spacing:-.01em;margin:0}
+.tag{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted)}
+.lede{color:var(--muted);max-width:70ch;margin:2px 0 26px}
+.controls{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;margin-bottom:22px}
+.ctl{display:flex;flex-direction:column;gap:6px}
+.ctl label{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+select{font-family:var(--sans);font-size:15px;color:var(--ink);background:var(--panel);
+  border:1px solid var(--line);border-radius:9px;padding:9px 34px 9px 12px;min-width:220px;
+  box-shadow:var(--shadow);cursor:pointer;-webkit-appearance:none;appearance:none;
+  background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+  background-position:calc(100% - 17px) 51%,calc(100% - 12px) 51%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.stat{margin-left:auto;display:flex;gap:26px;align-items:flex-end}
+.stat .n{font-family:var(--mono);font-size:30px;font-weight:600;letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums}
+.stat .k{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:3px}
+.stat .real .n{color:var(--accent2)}
+.grid{display:grid;grid-template-columns:1.15fr 1fr;gap:18px}
+@media(max-width:820px){.grid{grid-template-columns:1fr}.stat{width:100%;margin:8px 0 0}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;box-shadow:var(--shadow)}
+.card h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:2px 4px 10px;font-weight:600}
+.card img{width:100%;height:auto;display:block;border-radius:8px}
+.chase{display:inline-flex;align-items:center;gap:8px;margin-top:18px;padding:11px 18px;border-radius:10px;
+  background:var(--accent);color:#fff;text-decoration:none;font-weight:600;font-size:14px;box-shadow:var(--shadow)}
+.chase.off{background:var(--line);color:var(--muted);pointer-events:none}
+.note{color:var(--muted);font-size:13px;margin-top:16px;max-width:74ch}
+.miss{padding:60px 20px;text-align:center;color:var(--muted);background:var(--panel);border:1px dashed var(--line);border-radius:14px}
+</style></head>
+<body><div class="wrap">
+<header><h1>Planar lap gallery</h1><span class="tag">tricycle · OpenModelica · min-curvature line</span></header>
+<p class="lede">A power- and grip-limited 3-DOF vehicle driven around real OSM circuits by a
+lookahead-preview driver. Pick a track and a car. Where real logger data exists, the
+fastest recorded lap is overlaid on the simulated speed trace.</p>
+<div class="controls">
+  <div class="ctl"><label for="track">Track</label><select id="track"></select></div>
+  <div class="ctl"><label for="car">Car</label><select id="car"></select></div>
+  <div class="stat">
+    <div class="sim"><div class="k">Sim lap</div><div class="n" id="lap">—</div></div>
+    <div class="real"><div class="k">Real (logged)</div><div class="n" id="real">—</div></div>
+  </div>
+</div>
+<div id="view"></div>
+<script>
+const M=__MANIFEST__;
+const $=id=>document.getElementById(id);
+const trackSel=$('track'), carSel=$('car');
+for(const [k,v] of Object.entries(M.tracks)){const o=document.createElement('option');o.value=k;o.textContent=v;trackSel.appendChild(o);}
+for(const [k,v] of Object.entries(M.cars)){const o=document.createElement('option');o.value=k;o.textContent=v;carSel.appendChild(o);}
+function stem(){return carSel.value+'_'+({knutstorp:'knutstorp',nordschleife:'ns',anderstorp:'anderstorp',gelleras:'gelleras',kinnekulle:'kinnekulle'}[trackSel.value]||trackSel.value);}
+function fmt(sec){const m=Math.floor(sec/60);return m+':'+(sec-60*m).toFixed(1).padStart(4,'0');}
+function render(){
+  // find the combo whose car+track match (stem keys use the track prefix, so match by fields)
+  const c=Object.values(M.combos).find(x=>x.car===carSel.value&&x.track===trackSel.value);
+  const view=$('view');
+  if(!c){$('lap').textContent='—';$('real').textContent='—';
+    view.innerHTML='<div class="miss">This car has no completed lap on this track yet.</div>';return;}
+  $('lap').textContent=fmt(c.lap);
+  $('real').textContent=c.real_lap?fmt(c.real_lap):'—';
+  const chase=c.chase?`<a class="chase" href="${c.chase}">▶ Open chase-cam player</a>`
+                     :`<span class="chase off">chase-cam unavailable</span>`;
+  view.innerHTML=`<div class="grid">
+    <div class="card"><h2>Racing line — speed</h2><img alt="track map" src="svg/${c.stem}_map.svg"></div>
+    <div class="card"><h2>Speed trace${c.real_lap?' vs real telemetry':''}</h2><img alt="speed trace" src="svg/${c.stem}_speed.svg"></div>
+  </div>${chase}
+  <p class="note">Sim lap ${fmt(c.lap)}, peak ${c.vmax||'?'} km/h, line-tracking rms ${c.rms||'?'} m.
+  ${c.real_lap?'Orange dashed = fastest logged lap; the quasi-steady ideal for this car lands on it, the driven lap trails by the preview driver’s execution margin.':''}</p>`;
+}
+trackSel.onchange=carSel.onchange=render;
+// default to a combo that exists
+const first=Object.values(M.combos)[0];
+if(first){trackSel.value=first.track;carSel.value=first.car;}
+render();
+</script>
+</div></body></html>"""
+
+
+if __name__ == '__main__':
+    man = json.load(open(MANIFEST)) if A.html_only else build_manifest()
+    write_index(man)

@@ -1,0 +1,146 @@
+{
+ "cars": {
+  "tourer": "Sport Tourer (1650 kg, 150 kW)",
+  "elise": "Lotus Elise (862 kg, 118 hp)",
+  "miata": "Mazda MX-5 \"Oskar\" (980 kg, 140 hp)"
+ },
+ "tracks": {
+  "nordschleife": "N\u00fcrburgring Nordschleife",
+  "knutstorp": "Ring Knutstorp",
+  "anderstorp": "Anderstorp Raceway",
+  "gelleras": "Geller\u00e5sen Arena",
+  "kinnekulle": "Kinnekulle Ring"
+ },
+ "combos": {
+  "tourer_knutstorp": {
+   "car": "tourer",
+   "track": "knutstorp",
+   "stem": "tourer_knutstorp",
+   "lap": 89.2,
+   "real_lap": null,
+   "chase": "tourer_knutstorp_chase.html",
+   "vmax": "160.7",
+   "rms": "0.80"
+  },
+  "elise_knutstorp": {
+   "car": "elise",
+   "track": "knutstorp",
+   "stem": "elise_knutstorp",
+   "lap": 76.0,
+   "real_lap": 69.8,
+   "chase": "elise_knutstorp_chase.html",
+   "vmax": "169.8",
+   "rms": "1.64"
+  },
+  "miata_knutstorp": {
+   "car": "miata",
+   "track": "knutstorp",
+   "stem": "miata_knutstorp",
+   "lap": 74.2,
+   "real_lap": 68.0,
+   "chase": "miata_knutstorp_chase.html",
+   "vmax": "174.7",
+   "rms": "1.24"
+  },
+  "tourer_gelleras": {
+   "car": "tourer",
+   "track": "gelleras",
+   "stem": "tourer_gelleras",
+   "lap": 95.7,
+   "real_lap": null,
+   "chase": "tourer_gelleras_chase.html",
+   "vmax": "160.7",
+   "rms": "0.82"
+  },
+  "elise_gelleras": {
+   "car": "elise",
+   "track": "gelleras",
+   "stem": "elise_gelleras",
+   "lap": 81.9,
+   "real_lap": null,
+   "chase": "elise_gelleras_chase.html",
+   "vmax": "173.5",
+   "rms": "1.90"
+  },
+  "miata_gelleras": {
+   "car": "miata",
+   "track": "gelleras",
+   "stem": "miata_gelleras",
+   "lap": 79.9,
+   "real_lap": null,
+   "chase": "miata_gelleras_chase.html",
+   "vmax": "178.7",
+   "rms": "1.36"
+  },
+  "tourer_anderstorp": {
+   "car": "tourer",
+   "track": "anderstorp",
+   "stem": "tourer_anderstorp",
+   "lap": 136.0,
+   "real_lap": null,
+   "chase": "tourer_anderstorp_chase.html",
+   "vmax": "177.6",
+   "rms": "0.81"
+  },
+  "elise_anderstorp": {
+   "car": "elise",
+   "track": "anderstorp",
+   "stem": "elise_anderstorp",
+   "lap": 118.0,
+   "real_lap": null,
+   "chase": "elise_anderstorp_chase.html",
+   "vmax": "186.4",
+   "rms": "1.46"
+  },
+  "miata_anderstorp": {
+   "car": "miata",
+   "track": "anderstorp",
+   "stem": "miata_anderstorp",
+   "lap": 115.4,
+   "real_lap": null,
+   "chase": "miata_anderstorp_chase.html",
+   "vmax": "193.5",
+   "rms": "1.20"
+  },
+  "tourer_kinnekulle": {
+   "car": "tourer",
+   "track": "kinnekulle",
+   "stem": "tourer_kinnekulle",
+   "lap": 75.4,
+   "real_lap": null,
+   "chase": "tourer_kinnekulle_chase.html",
+   "vmax": "163.7",
+   "rms": "0.79"
+  },
+  "elise_kinnekulle": {
+   "car": "elise",
+   "track": "kinnekulle",
+   "stem": "elise_kinnekulle",
+   "lap": 64.1,
+   "real_lap": null,
+   "chase": "elise_kinnekulle_chase.html",
+   "vmax": "169.8",
+   "rms": "1.30"
+  },
+  "miata_kinnekulle": {
+   "car": "miata",
+   "track": "kinnekulle",
+   "stem": "miata_kinnekulle",
+   "lap": 62.8,
+   "real_lap": null,
+   "chase": "miata_kinnekulle_chase.html",
+   "vmax": "174.6",
+   "rms": "1.12"
+  },
+  "tourer_ns": {
+   "car": "tourer",
+   "track": "nordschleife",
+   "stem": "tourer_ns",
+   "lap": 639.2,
+   "real_lap": null,
+   "chase": "tourer_ns_chase.html",
+   "vmax": "229.6",
+   "rms": "0.98"
+  }
+ }
+}
