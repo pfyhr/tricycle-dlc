@@ -135,7 +135,7 @@ input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;bac
     <div class="bar t"><i id="thr"></i><span class="bl">THR</span></div>
     <div class="bar b"><i id="brk"></i><span class="bl">BRK</span></div>
   </div>
-  <div id="steerwrap"><canvas id="steerc" width="64" height="64"></canvas><span class="bl">steer</span></div>
+  <div id="steerwrap"><canvas id="steerc" width="76" height="76"></canvas><span class="bl">steer</span></div>
 </div>
 
 <div class="hud" id="charts">
@@ -342,20 +342,32 @@ function drawGGhud(p){
     gg.fillStyle=`rgba(232,193,90,${0.1+0.55*a})`;
     gg.beginPath();gg.arc(46+trail[i][0]*40,46-trail[i][1]*40,i===trail.length-1?3.5:2,0,7);gg.fill();}
 }
-// ---- steering wheel (rotates with steer; yellow marker at 12 o'clock) ------------
-const swc=$('steerc').getContext('2d');
+// ---- steering wheel: MOMO Prototipo style, yellow top marker (rotates with steer) ----
+const swCv=$('steerc'), SW=76, swc=swCv.getContext('2d');
+swCv.width=SW*dpr; swCv.height=SW*dpr; swCv.style.width=swCv.style.height=SW+'px'; swc.scale(dpr,dpr);
 function drawWheel(del){
-  const g=swc; g.clearRect(0,0,64,64); const cx=32,cy=32,rr=23;
-  const ang=Math.max(-1,Math.min(1,del/C.dMax))*2.3;   // amplify road-wheel angle to wheel turn
-  g.strokeStyle=css('--ink-dim'); g.lineWidth=3; g.beginPath(); g.arc(cx,cy,rr,0,7); g.stroke();
-  g.save(); g.translate(cx,cy); g.rotate(ang);
-  g.strokeStyle=css('--ink-dim'); g.lineWidth=2.6; g.lineCap='round'; g.beginPath();
-  g.moveTo(0,0); g.lineTo(0,-rr);                       // top spoke
-  g.moveTo(0,0); g.lineTo(-rr*0.87,rr*0.5);             // lower-left spoke
-  g.moveTo(0,0); g.lineTo(rr*0.87,rr*0.5);              // lower-right spoke
-  g.stroke();
-  g.fillStyle=css('--ink-dim'); g.beginPath(); g.arc(0,0,4.5,0,7); g.fill();     // hub
-  g.fillStyle=css('--accent'); g.beginPath(); g.arc(0,-rr,4.5,0,7); g.fill();    // top marker
+  const g=swc, c=SW/2, R=c-4; g.clearRect(0,0,SW,SW);
+  const ang=-Math.max(-1,Math.min(1,del/C.dMax))*2.3;  // canvas y-down: negate so it turns with the steer
+  g.lineCap='butt';
+  // black leather rim + highlight + stitching (static — a ring looks the same rotated)
+  g.strokeStyle='#050505'; g.lineWidth=9; g.beginPath(); g.arc(c,c,R-4,0,7); g.stroke();
+  g.strokeStyle='#232323'; g.lineWidth=6;  g.beginPath(); g.arc(c,c,R-4,0,7); g.stroke();
+  g.strokeStyle='rgba(255,255,255,.09)'; g.lineWidth=1; g.beginPath(); g.arc(c,c,R-1.6,0,7); g.stroke();
+  g.strokeStyle='rgba(206,200,182,.28)'; g.lineWidth=0.8; g.setLineDash([1.4,2.6]);
+  g.beginPath(); g.arc(c,c,R-4,0,7); g.stroke(); g.setLineDash([]);
+  // rotating parts: three drilled spokes (two up, one down), hub, top marker
+  g.save(); g.translate(c,c); g.rotate(ang);
+  const rin=R-8, sp=[[0,1],[-0.82,-0.574],[0.82,-0.574]];
+  g.strokeStyle='#141414'; g.lineWidth=6; g.lineCap='round';
+  for(const[dx,dy] of sp){ g.beginPath(); g.moveTo(0,0); g.lineTo(dx*rin,dy*rin); g.stroke(); }
+  g.fillStyle='#000';                                   // drilled holes
+  for(const[dx,dy] of sp) for(const f of [0.5,0.68,0.86]){ g.beginPath(); g.arc(dx*rin*f,dy*rin*f,1.5,0,7); g.fill(); }
+  g.fillStyle='#0a0a0a'; g.beginPath(); g.arc(0,0,9,0,7); g.fill();               // hub cap
+  g.strokeStyle='#2e2e2e'; g.lineWidth=1; g.beginPath(); g.arc(0,0,9,0,7); g.stroke();
+  g.fillStyle=css('--accent'); g.fillRect(-4.5,-2.4,9,4.8);                        // MOMO yellow block
+  g.fillStyle='#0a0a0a'; g.fillRect(-4.5,-0.4,9,0.8);                              // logo split line
+  g.fillStyle=css('--accent');                                                     // yellow 12-o'clock marker
+  g.beginPath(); g.roundRect(-1.8,-(R-3.5), 3.6, 8, 1.4); g.fill();
   g.restore();
 }
 // ---- telemetry HUD (DOM) ---------------------------------------------------------
