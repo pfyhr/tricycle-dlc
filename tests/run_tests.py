@@ -166,7 +166,7 @@ if os.path.exists(rf):
 # ---- 5. TrackLap: minimum-curvature racing-line laps on the planar OSM circuits ----
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'tracks'))
 from speed_profile import load_centerline, speed_profile, write_track_table
-from racing_line import min_curvature_line
+from racing_line import min_curvature_line, apply_driver_margin
 from fetch_track import TRACKS
 
 CAR_HALF, EDGE_MARGIN = 0.9, 0.2  # must mirror track_lap.py
@@ -181,6 +181,10 @@ for key, lmin, lmax in TRACK_CASES:
     dsc = sT[1] - sT[0]
     wMax = TRACKS[key]['width']/2 - CAR_HALF - EDGE_MARGIN
     nRef, psiRef, kapLine, dsSeg = min_curvature_line(xT, yT, psiT, kapT, dsc, wMax)
+    vRef, axFF = speed_profile(sT, kapLine, ds_seg=dsSeg)
+    # inset where fast (mirrors track_lap), then recompute the profile on the inset line
+    nRef, psiRef, kapLine, dsSeg = apply_driver_margin(
+        xT, yT, psiT, dsc, nRef, wMax, vRef)
     vRef, axFF = speed_profile(sT, kapLine, ds_seg=dsSeg)
     LTRK = write_track_table(os.path.join(MOD, 'build', 'track.txt'), sT, kapT, vRef,
                              axFF, nRef=nRef, psiRef=psiRef, kappaLine=kapLine)

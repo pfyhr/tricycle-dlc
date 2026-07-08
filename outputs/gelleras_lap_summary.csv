@@ -1,14 +1,14 @@
 quantity,value,unit
 track,Gelleråsen Arena,-
 line,optimal,-
-lap_time,95.8,s
-track_length,2330.0,m
-path_length,2298.8,m
-ideal_quasi_steady_lap,94.1,s
-v_max,160.0,km/h
-v_min,41.0,km/h
-abs_n_max,3.77,m
-line_tracking_rms,0.79,m
+lap_time,95.7,s
+track_length,2326.6,m
+path_length,2299.5,m
+ideal_quasi_steady_lap,94.0,s
+v_max,160.7,km/h
+v_min,40.9,km/h
+abs_n_max,3.34,m
+line_tracking_rms,0.82,m
 ay_peak,0.88,g
 brake_peak,0.77,g
 tie_rod_peak,1860,N

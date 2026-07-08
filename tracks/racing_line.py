@@ -68,6 +68,21 @@ def min_curvature_line(x, y, psi, kappa_c, ds, w_max, alpha=3e-6, smooth=10.0):
     return w, dpsi_ref, kappa_line, ds_seg
 
 
+def apply_driver_margin(x, y, psi, ds, w, w_max, vRef, margin=0.4, k=1.4):
+    """Pull a racing line in from the corridor edge where the car is fast.
+
+    The geometric minimum-curvature line has no speed awareness and uses the full
+    corridor even through fast corners - but the preview driver overshoots it by ~1 m
+    at 160+ km/h and would run off a narrow track. Inset the line by a speed-dependent
+    margin (grip-limited run-wide grows ~v^2, same law as the OCP corridor), so the
+    tracking overshoot stays on asphalt. Returns the reshaped (w, dpsi_ref, kappa_line,
+    ds_seg) from the exact offset geometry of the inset line."""
+    wCap = np.clip(w_max - margin - k*(vRef/vRef.max())**2, 0.3, w_max)
+    w = _gauss_periodic(np.clip(w, -wCap, wCap), ds, 8.0)
+    dpsi_ref, kappa_line, ds_seg = offset_geometry(x, y, psi, ds, w)
+    return w, dpsi_ref, kappa_line, ds_seg
+
+
 def offset_geometry(x, y, psi, ds, w):
     """Exact heading (vs centerline), curvature and per-segment length of the path
     offset laterally by w(s) from the centerline. Shared by the minimum-curvature

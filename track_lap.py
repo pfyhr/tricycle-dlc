@@ -33,6 +33,8 @@ CFG = TRACKS[TRACK]
 PFX, DISPLAY = CFG['prefix'], CFG['display']
 CAR_HALF = 0.9      # BW/2, must mirror the vehicle footprint
 EDGE_MARGIN = 0.2   # keep the tyres just inside the white line
+DRIVER_MARGIN = 0.4 # min-curve line: leave room for the driver's tracking overshoot
+                    # (the OCP line pulls in via its speed-dependent corridor instead)
 
 OMC = shutil.which('omc') or '/Users/pontus/opt/openmodelica/bin/omc'
 os.environ.setdefault('OPENMODELICAHOME',
@@ -58,10 +60,10 @@ tOcp = None
 deltaFF = None
 if LINE in ('optimal', 'ocp') and wMax > 0.3:
     # minimum-curvature line first (both the 'optimal' answer and the OCP warm start)
+    from racing_line import offset_geometry, _gauss_periodic, apply_driver_margin
     nRef, psiRef, kapLine, dsSeg = min_curvature_line(x, y, psi, kap, ds, wMax)
     if LINE == 'ocp':
         from opt_lap import solve_min_time_dyn
-        from racing_line import offset_geometry, _gauss_periodic
         vMC, _ = speed_profile(s, kapLine, ds_seg=dsSeg, **SETUP)
         # solve on a coarser grid (~10 m spacing, capped ~700 nodes for the long tracks)
         # then interpolate the optimal offset back to the full centerline grid
@@ -101,7 +103,14 @@ if LINE in ('optimal', 'ocp') and wMax > 0.3:
         # de-ripple and bound the feedforward: keep the useful low-frequency sideslip
         # steer, drop the spikes that would just saturate the road-wheel clamp
         deltaFF = np.clip(_gauss_periodic(deltaFF, ds, 6.0), -0.08, 0.08)
-    tag = f'{"OCP min-time" if LINE == "ocp" else "min-curvature"} line, corridor +/-{wMax:.1f} m'
+        tag = f'OCP min-time line, corridor +/-{wMax:.1f} m'
+    else:
+        # inset the geometric line where the car is fast, so the preview driver's
+        # tracking overshoot stays on asphalt (see racing_line.apply_driver_margin)
+        vMC, _ = speed_profile(s, kapLine, ds_seg=dsSeg, **SETUP)
+        nRef, psiRef, kapLine, dsSeg = apply_driver_margin(
+            x, y, psi, ds, nRef, wMax, vMC, margin=DRIVER_MARGIN)
+        tag = f'min-curvature line, corridor +/-{wMax - DRIVER_MARGIN - 1.4:.1f}-{wMax:.1f} m'
 else:
     nRef = psiRef = None
     kapLine, dsSeg = kap, None

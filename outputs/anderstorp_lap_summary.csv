@@ -1,14 +1,14 @@
 quantity,value,unit
 track,Anderstorp Raceway,-
 line,optimal,-
-lap_time,135.1,s
-track_length,4010.0,m
-path_length,3985.6,m
-ideal_quasi_steady_lap,133.0,s
-v_max,178.3,km/h
-v_min,56.9,km/h
-abs_n_max,4.57,m
-line_tracking_rms,0.82,m
+lap_time,136.0,s
+track_length,4008.6,m
+path_length,3986.3,m
+ideal_quasi_steady_lap,134.0,s
+v_max,177.6,km/h
+v_min,56.0,km/h
+abs_n_max,4.15,m
+line_tracking_rms,0.81,m
 ay_peak,0.90,g
 brake_peak,0.76,g
 tie_rod_peak,1843,N

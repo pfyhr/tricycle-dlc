@@ -1,15 +1,15 @@
 quantity,value,unit
 track,Nürburgring Nordschleife,-
 line,optimal,-
-lap_time,639.9,s
-track_length,20720.0,m
-path_length,20652.5,m
-ideal_quasi_steady_lap,630.6,s
+lap_time,639.2,s
+track_length,20717.1,m
+path_length,20652.8,m
+ideal_quasi_steady_lap,629.5,s
 v_max,229.6,km/h
-v_min,47.3,km/h
-abs_n_max,3.81,m
-line_tracking_rms,0.95,m
+v_min,46.8,km/h
+abs_n_max,3.62,m
+line_tracking_rms,0.98,m
 ay_peak,0.93,g
 brake_peak,0.73,g
-tie_rod_peak,1878,N
+tie_rod_peak,1889,N
 drive_power_peak,150,kW

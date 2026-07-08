@@ -14,10 +14,34 @@ import numpy as np
 G = 9.80665
 
 
-def load_centerline(path):
-    """Read tracks/nordschleife.csv (or same format): s,x,y,psi,kappa."""
+def load_centerline(path, resample=True):
+    """Read tracks/nordschleife.csv (or same format): s,x,y,psi,kappa.
+
+    With `resample` (default), reparameterize the closed loop to TRUE uniform
+    arc length. The fetched CSV is uniform (ds ~ 5 m) for every interior segment
+    but leaves one short closing segment where the loop bites its tail (e.g. 2.2 m
+    on kinnekulle). That makes `s` not quite arc length at the start/finish seam,
+    so a racing line whose offset is smooth in `s` becomes physically kinked there
+    - a spurious ~30 m-radius corner at s=0 that tanks the rolling-start speed. We
+    resample x,y onto a uniform physical-arc-length grid (closing segment now = ds
+    like every other) and carry the original smooth psi/kappa across, fixing the
+    seam without perturbing the bulk (interior points shift < 0.1 m)."""
     d = np.genfromtxt(path, delimiter=',', skip_header=3, names=True)
-    return (d['s_m'], d['x_m'], d['y_m'], d['psi_rad'], d['kappa_1pm'])
+    s, x, y, psi, kap = (d['s_m'], d['x_m'], d['y_m'], d['psi_rad'], d['kappa_1pm'])
+    if not resample:
+        return s, x, y, psi, kap
+    ds = s[1] - s[0]
+    seg = np.hypot(np.roll(x, -1) - x, np.roll(y, -1) - y)   # physical, incl closing
+    L = seg.sum()
+    sc = np.concatenate([[0.0], np.cumsum(seg)])             # cum arc length, 0..L
+    N = int(round(L/ds))
+    su = np.arange(N)*(L/N)
+    # psi is globally unwrapped (a single closed loop winds +-2*pi); the heading
+    # back at the start point (s = L) is psi[0] + that net winding
+    wind = 2*np.pi*np.sign(psi[-1] - psi[0])
+    clo = lambda f, end: np.interp(su, sc, np.append(f, end))
+    return (su, clo(x, x[0]), clo(y, y[0]),
+            clo(psi, psi[0] + wind), clo(kap, kap[0]))
 
 
 def top_speed(m, Pmax, CdA, Crr, rho):

@@ -2,14 +2,14 @@ quantity,value,unit
 track,Ring Knutstorp,-
 line,optimal,-
 lap_time,89.2,s
-track_length,2055.0,m
-path_length,2018.5,m
+track_length,2051.2,m
+path_length,2019.2,m
 ideal_quasi_steady_lap,87.4,s
-v_max,159.8,km/h
-v_min,40.8,km/h
-abs_n_max,3.18,m
+v_max,160.7,km/h
+v_min,40.1,km/h
+abs_n_max,3.01,m
 line_tracking_rms,0.80,m
 ay_peak,0.88,g
-brake_peak,0.77,g
-tie_rod_peak,1844,N
+brake_peak,0.78,g
+tie_rod_peak,1846,N
 drive_power_peak,150,kW
