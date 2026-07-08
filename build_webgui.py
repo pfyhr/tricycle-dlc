@@ -4,8 +4,14 @@ Ports the planar plant (Track.TrackTricycle, reduced: steer + roll/pitch load-tr
 kept, tyre relaxation dropped), the lookahead driver (Track.TrackDriver), and the
 quasi-steady speed profile to JavaScript, so a full lap runs in the browser in a few ms.
 The racing line (min-curvature geometry) is fixed and car-independent; sliders change the
-CAR (mass, power, grip, downforce, brake bias, balance) and the lap re-solves live. Real
-telemetry is overlaid on the speed trace. One track (Knutstorp) for the POC.
+CAR (mass, power, grip µ, downforce) plus a dry/wet toggle, and the lap re-solves live.
+Real telemetry is overlaid on the speed trace. One track (Knutstorp) for the POC.
+
+The UI adopts the Modelica chase-cam player's look (track_render.py): a full-viewport
+heading-up follow camera with floating HUD panels. The JS driver is tuned past the Modelica
+reference for clean on-line tracking (honest grip budget + mass-aware cornering limit +
+tighter lookahead feedback — see GRIP_DERATE/MASS_EXP/KMUL in webgui_template.html); it no
+longer matches Modelica lap times to the tenth by design (it drives a tidier, saner line).
 """
 import json, os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
