@@ -55,35 +55,52 @@ width = args.width if args.width is not None else CFG.get('width', 10.0)
 wMax = max(0.0, width/2 - CAR_HALF - EDGE_MARGIN)
 
 tOcp = None
+deltaFF = None
 if LINE in ('optimal', 'ocp') and wMax > 0.3:
     # minimum-curvature line first (both the 'optimal' answer and the OCP warm start)
     nRef, psiRef, kapLine, dsSeg = min_curvature_line(x, y, psi, kap, ds, wMax)
     if LINE == 'ocp':
-        from opt_lap import solve_min_time
+        from opt_lap import solve_min_time_dyn
         from racing_line import offset_geometry, _gauss_periodic
         vMC, _ = speed_profile(s, kapLine, ds_seg=dsSeg, **SETUP)
-        # leave a margin inside the physical corridor for the tracking overshoot,
-        # so the real car's line stays on the asphalt
-        wOcp = max(0.3, wMax - 1.1)
-        # solve on a coarser grid (~<=1000 nodes) for tractability on long tracks,
+        # solve on a coarser grid (~10 m spacing, capped ~700 nodes for the long tracks)
         # then interpolate the optimal offset back to the full centerline grid
-        stride = max(1, int(np.ceil(len(s)/1000)))
+        stride = max(int(round(10.0/ds)), int(np.ceil(len(s)/700)))
         sc, kc = s[::stride], kap[::stride]
-        print(f'{DISPLAY}: solving minimum-time OCP ({len(sc)} nodes'
+        # SPEED-DEPENDENT corridor: pull the optimal line in from the edge where the car is
+        # fast, since it runs wider on exit the faster it goes (a uniform margin can't - tight
+        # enough for fast corners over-conservatises slow ones). Margin grows ~v^2 (grip-limited
+        # run-wide), from ~0.5 m in slow corners to ~2.1 m at top speed.
+        vN = vMC[::stride]
+        wOcp = np.clip(wMax - 0.5 - 1.6*(vN/vN.max())**2, 0.3, wMax)
+        print(f'{DISPLAY}: solving 3-DOF minimum-time OCP ({len(sc)} nodes'
               f'{f" (every {stride}th of {len(s)})" if stride > 1 else ""}, '
-              f'corridor +/-{wOcp:.1f} m)...')
-        nOpt_c, ocp = solve_min_time(sc, kc, wOcp, grip_frac=SETUP['ayFrac'],
-                                     v_init=vMC[::stride], n_init=nRef[::stride],
-                                     dpsi_init=psiRef[::stride])
+              f'corridor +/-{wOcp.min():.1f}-{wOcp.max():.1f} m)...')
+        # grip_frac 0.93 matches the plant's realised peak; w_reg gentles the steer rate
+        # so the optimal transitions stay within the preview driver's tracking bandwidth
+        nOpt_c, ocp = solve_min_time_dyn(sc, kc, wOcp, grip_frac=0.93, w_reg=4e-2,
+                                         v_init=vMC[::stride], n_init=nRef[::stride],
+                                         dpsi_init=psiRef[::stride])
         tOcp = ocp['T']
         print(f'  IPOPT {"converged" if ocp["converged"] else "did NOT converge"}: '
               f'T_opt = {int(tOcp//60)}:{tOcp % 60:04.1f} '
-              f'(provable min-time for the point-mass model)')
+              f'(min-time for the 3-DOF yaw+sideslip vehicle)')
         Lc = sc[-1] + (sc[1] - sc[0])
         nRef = np.interp(s, np.append(sc, Lc), np.append(nOpt_c, nOpt_c[0]))
-        # light final smoothing (the OCP's own path-curvature penalty does most of it)
-        nRef = np.clip(_gauss_periodic(nRef, ds, 10.0), -wMax, wMax)
+        # light final smoothing, just to de-ripple the interpolation (the yaw dynamics
+        # already make the line smooth - no path-curvature penalty needed)
+        nRef = np.clip(_gauss_periodic(nRef, ds, 6.0), -wMax, wMax)
         psiRef, kapLine, dsSeg = offset_geometry(x, y, psi, ds, nRef)
+        # dynamic steer feedforward: the OCP's optimal steer minus the kinematic part
+        # (the driver adds its own (Lwb+Kus*vx^2)*kapLine), i.e. the sideslip-steer the
+        # geometric feedforward misses - this is what lets the real car actually hold
+        # the aggressive optimal line (Kapania-Gerdes feedforward+feedback).
+        dOcp = np.interp(s, np.append(sc, Lc), np.append(ocp['delta'], ocp['delta'][0]))
+        uOcp = np.interp(s, np.append(sc, Lc), np.append(ocp['u'], ocp['u'][0]))
+        deltaFF = dOcp - (2.80 + 1.63e-3*uOcp**2)*kapLine
+        # de-ripple and bound the feedforward: keep the useful low-frequency sideslip
+        # steer, drop the spikes that would just saturate the road-wheel clamp
+        deltaFF = np.clip(_gauss_periodic(deltaFF, ds, 6.0), -0.08, 0.08)
     tag = f'{"OCP min-time" if LINE == "ocp" else "min-curvature"} line, corridor +/-{wMax:.1f} m'
 else:
     nRef = psiRef = None
@@ -91,7 +108,7 @@ else:
     tag = 'centerline'
 vRef, axFF = speed_profile(s, kapLine, ds_seg=dsSeg, **SETUP)
 LTRK = write_track_table(os.path.join(MOD, 'build/track.txt'), s, kap, vRef, axFF,
-                         nRef=nRef, psiRef=psiRef, kappaLine=kapLine)
+                         nRef=nRef, psiRef=psiRef, kappaLine=kapLine, deltaFF=deltaFF)
 # lap distance/time along the driven path (line if optimal, else centerline)
 pathLen = float(np.sum(dsSeg)) if dsSeg is not None else LTRK
 tIdeal = np.sum((dsSeg if dsSeg is not None else np.full(len(s), ds))/vRef)

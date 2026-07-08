@@ -66,14 +66,17 @@ def speed_profile(s, kappa, m=1650.0, Pmax=150e3, CdA=0.72, Crr=0.012, rho=1.20,
 
 
 def write_track_table(path, s, kappa, vRef, axFF, nRef=None, psiRef=None,
-                      kappaLine=None, extend=1500.0):
-    """Write the OpenModelica text table 'track' with 7 columns
-    (s, kappa_c, vRef, axFF, n_ref, psi_ref, kappa_line), repeating the first
+                      kappaLine=None, deltaFF=None, extend=1500.0):
+    """Write the OpenModelica text table 'track' with 8 columns
+    (s, kappa_c, vRef, axFF, n_ref, psi_ref, kappa_line, delta_ff), repeating the first
     `extend` meters beyond s = L so preview lookups never leave the table.
 
     n_ref / psi_ref / kappa_line describe the racing line the driver follows (offset,
     heading vs centerline, line curvature). Omit them for centerline following:
-    n_ref = psi_ref = 0 and kappa_line = kappa_c, which the driver reduces to exactly."""
+    n_ref = psi_ref = 0 and kappa_line = kappa_c, which the driver reduces to exactly.
+    delta_ff is an optional dynamic steer feedforward (the OCP line's sideslip-steer
+    beyond the kinematic term); 0 for the geometric lines (the driver's own kinematic
+    feedforward then carries it)."""
     ds = s[1] - s[0]
     Ltrk = s[-1] + ds
     nExt = int(extend/ds) + 1
@@ -81,13 +84,14 @@ def write_track_table(path, s, kappa, vRef, axFF, nRef=None, psiRef=None,
     nRef = z if nRef is None else nRef
     psiRef = z if psiRef is None else psiRef
     kappaLine = kappa if kappaLine is None else kappaLine
+    deltaFF = z if deltaFF is None else deltaFF
     sAll = np.concatenate([s, Ltrk + s[:nExt]])
     wrap = lambda f: np.concatenate([f, f[:nExt]])
     tab = np.column_stack([sAll, wrap(kappa), wrap(vRef), wrap(axFF),
-                           wrap(nRef), wrap(psiRef), wrap(kappaLine)])
+                           wrap(nRef), wrap(psiRef), wrap(kappaLine), wrap(deltaFF)])
     with open(path, 'w') as f:
         f.write('#1\n')
-        f.write(f'double track({tab.shape[0]},7)  '
-                f'# s, kappa_c, vRef, axFF, n_ref, psi_ref, kappa_line\n')
+        f.write(f'double track({tab.shape[0]},8)  '
+                f'# s, kappa_c, vRef, axFF, n_ref, psi_ref, kappa_line, delta_ff\n')
         np.savetxt(f, tab, fmt='%.6f')
     return Ltrk

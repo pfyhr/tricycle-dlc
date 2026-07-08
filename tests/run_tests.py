@@ -228,9 +228,9 @@ for key, lmin, lmax in TRACK_CASES:
           np.abs(nl['FtieL']).max(), np.abs(nl['FtieR']).max()) < 4000,
           f"{max(np.abs(nl['FtieL']).max(), np.abs(nl['FtieR']).max()):.0f} N")
 
-# ---- 6. minimum-time optimal control (skipped if casadi is not installed) ----------
+# ---- 6. 3-DOF minimum-time optimal control (skipped if casadi is not installed) -----
 try:
-    from opt_lap import solve_min_time
+    from opt_lap import solve_min_time_dyn
     have_casadi = True
 except ImportError:
     have_casadi = False
@@ -243,20 +243,24 @@ if have_casadi:
     wMax = TRACKS[key]['width']/2 - CAR_HALF - EDGE_MARGIN
     nMC, psiMC, kapMC, dsMC = min_curvature_line(xT, yT, psiT, kapT, dsc, wMax)
     vMC, _ = speed_profile(sT, kapMC, ds_seg=dsMC)
-    nOpt, ocp = solve_min_time(sT, kapT, wMax - 0.5, grip_frac=0.90, v_init=vMC,
-                               n_init=nMC, dpsi_init=psiMC)
-    check('OCP solve converges (KKT / IPOPT)', ocp['converged'],
-          f"T_opt {ocp['T']:.1f} s")
+    st = max(1, int(np.ceil(len(sT)/120)))   # coarse grid to keep the test fast
+    wOcp = wMax - 0.8
+    nOpt, ocp = solve_min_time_dyn(sT[::st], kapT[::st], wOcp, grip_frac=0.93,
+                                   v_init=vMC[::st], n_init=nMC[::st], dpsi_init=psiMC[::st])
+    check('3-DOF OCP solve converges (KKT / IPOPT)', ocp['converged'],
+          f"T {ocp['T']:.1f} s, {len(sT[::st])} nodes")
     check('OCP line stays inside the corridor',
-          np.abs(nOpt).max() <= wMax - 0.5 + 1e-3,
-          f'|n_opt|max {np.abs(nOpt).max():.2f} of {wMax - 0.5:.2f} m')
-    # the min-time bound must be a true lower bound: below the quasi-steady ideal
+          np.abs(nOpt).max() <= wOcp + 1e-2,
+          f'|n_opt|max {np.abs(nOpt).max():.2f} of {wOcp:.2f} m')
+    # the 3-DOF min-time must sit below the quasi-steady centerline ideal (a lower bound)
     vC, _ = speed_profile(sT, kapT)
-    check('OCP min-time is a lower bound on the centerline ideal',
+    check('OCP min-time below the centerline quasi-steady ideal',
           ocp['T'] < np.sum(dsc/vC), f"{ocp['T']:.1f} s vs {np.sum(dsc/vC):.1f} s")
     check('OCP optimal speed is physical (30-200 km/h)',
-          30 < 3.6*ocp['v'].min() and 3.6*ocp['v'].max() < 200,
-          f"{3.6*ocp['v'].min():.0f}-{3.6*ocp['v'].max():.0f} km/h")
+          30 < 3.6*ocp['u'].min() and 3.6*ocp['u'].max() < 200,
+          f"{3.6*ocp['u'].min():.0f}-{3.6*ocp['u'].max():.0f} km/h")
+    check('OCP yaw rate is physical (< 1.5 rad/s)',
+          np.abs(ocp['r']).max() < 1.5, f"|r|max {np.abs(ocp['r']).max():.2f} rad/s")
 
 # ---- summary -----------------------------------------------------------------------
 print()
