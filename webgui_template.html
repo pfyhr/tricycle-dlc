@@ -96,9 +96,39 @@ input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;bac
 #charts .cap b{font-weight:400;color:var(--ink)}
 .sw{display:inline-block;width:9px;height:9px;border-radius:2px;vertical-align:middle;margin-right:4px}
 
-@media(max-width:720px){
-  #garage{top:auto;bottom:66px;right:14px;width:200px}
-  #mini{display:none} #charts{top:14px} #tele{gap:12px} #speed .v{font-size:40px}
+/* mobile-only "car setup" toggle button (hidden on desktop, where the panel is always shown) */
+#setupToggle{display:none;position:fixed;z-index:5;background:var(--panel);color:var(--ink);
+  border:1px solid var(--panel-line);border-radius:9px;font-family:var(--sans);font-size:12px;
+  padding:8px 12px;cursor:pointer;backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px)}
+
+@media(max-width:640px){
+  /* top-left session: compact */
+  #session{top:10px;left:10px;min-width:0;max-width:52vw;padding:9px 11px}
+  #session .lap{font-size:26px}
+  #session .sub{font-size:10px}
+  #session .grid{gap:4px 10px;margin-top:8px;font-size:12px}
+  #session .grid .l{font-size:8.5px}
+  /* top-right: keep only the track dropdown (minimap hidden) */
+  #mini{top:10px;right:10px;padding:8px}
+  #mini canvas,#mini h3{display:none}
+  #track{width:32vw;max-width:150px;margin-top:0;font-size:12px}
+  /* car setup: a toggled top-right sheet instead of a mid-screen floating panel */
+  #setupToggle{display:block;top:64px;right:10px}
+  #setupToggle.on{border-color:var(--accent);color:var(--accent)}
+  #garage{display:none;top:104px;right:10px;left:auto;bottom:auto;
+    width:min(80vw,260px);max-height:calc(100vh - 184px);overflow-y:auto}
+  #garage.open{display:block}
+  /* bottom telemetry: speed + g-g + steering only (drop the wrapping rows and throttle bars) */
+  #tele{bottom:58px;left:10px;right:10px;gap:16px;align-items:flex-end}
+  #tele .rows,#tele #bars{display:none}
+  #speed .v{font-size:38px}
+  /* playback bar: drop zoom, tighten so the clock/speed stop colliding */
+  #ctrl{bottom:10px;left:10px;right:10px;gap:8px;padding:7px 10px;flex-wrap:wrap}
+  #ctrl button{padding:4px 10px}
+  #zoomctl{display:none}
+  #ctrl .clock{min-width:0;font-size:12px}
+  /* charts drawer: full-width below the top controls when opened */
+  #charts{top:110px;left:10px;right:10px;width:auto;max-width:none}
 }
 </style></head>
 <body>
@@ -119,6 +149,7 @@ input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;bac
   <h3 style="margin:9px 0 6px">Track</h3>
   <select id="track" aria-label="track"></select></div>
 
+<button id="setupToggle" aria-expanded="false">car setup ▾</button>
 <div class="hud" id="garage">
   <h3>Car setup</h3>
   <select id="preset"></select>
@@ -158,7 +189,7 @@ input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;bac
   <input id="scrub" type="range" min="0" max="1000" value="0">
   <span class="spd clock"><span id="ptime">0:00.0</span> / <span id="ltot">0:00.0</span></span>
   <span class="spd">speed <select id="pspeed"><option>0.5</option><option selected>1</option><option>2</option><option>4</option></select>×</span>
-  <span class="spd">zoom <input class="z" id="zoom" type="range" min="60" max="240" value="120"></span>
+  <span class="spd" id="zoomctl">zoom <input class="z" id="zoom" type="range" min="60" max="240" value="120"></span>
   <button id="chartsBtn">charts</button>
 </div>
 
@@ -544,6 +575,9 @@ $('pspeed').onchange=e=>pb.speed=+e.target.value;
 $('zoom').oninput=e=>{viewH=300-parseFloat(e.target.value); renderFrame();};
 $('chartsBtn').onclick=()=>{const c=$('charts');c.classList.toggle('show');
   $('chartsBtn').classList.toggle('on',c.classList.contains('show')); drawCharts();};
+$('setupToggle').onclick=()=>{const open=$('garage').classList.toggle('open');   // mobile car-setup sheet
+  $('setupToggle').classList.toggle('on',open); $('setupToggle').setAttribute('aria-expanded',open);
+  $('setupToggle').textContent=open?'car setup ▴':'car setup ▾';};
 addEventListener('keydown',e=>{
   if(e.code==='Space'){e.preventDefault();$('play').click();}
   if(e.code==='ArrowRight'&&R&&!pb.live){pb.t=Math.min(pb.t+3,R.lap-0.01);renderFrame();}
