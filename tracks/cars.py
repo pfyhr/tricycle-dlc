@@ -19,7 +19,7 @@ G = 9.80665
 
 def _car(display, m, Pmax, CdA, Crr, rho, mu, ayFrac, hcg, a, b,
          Izz, tf, xiF, kBf, c1F, c1R, c2F, c2R, FzNomF, FzNomR, ap0F, ap0R,
-         Kus, KLA=0.10, Kr=0.6, grip_frac=0.93):
+         Kus, KLA=0.10, Kr=0.6, grip_frac=0.93, ClA=0.0, aeroBal=0.42):
     # steady understeer gradient from the bicycle model, Kus = Wf/Caf - Wr/Car
     # [rad/(m/s^2)], used by the driver's steer feedforward delta = (L + Kus*v^2)*kappa.
     # grip_frac derates nominal mu to what the full plant sustains transiently (the OCP
@@ -33,7 +33,8 @@ def _car(display, m, Pmax, CdA, Crr, rho, mu, ayFrac, hcg, a, b,
         trike=dict(m=m, Izz=Izz, a=a, b=b, tf=tf, hcg=hcg, xiF=xiF, kBf=kBf,
                    CdA=CdA, Crr=Crr, rho=rho, muF=mu, muR=mu,
                    c1F=c1F, c1R=c1R, c2F=c2F, c2R=c2R,
-                   FzNomF=FzNomF, FzNomR=FzNomR, ap0F=ap0F, ap0R=ap0R),
+                   FzNomF=FzNomF, FzNomR=FzNomR, ap0F=ap0F, ap0R=ap0R,
+                   ClA=ClA, aeroBal=aeroBal),
         driver=dict(Lwb=a + b, Kus=Kus, KLA=KLA, Kr=Kr),
     )
 
@@ -85,6 +86,21 @@ CARS = {
         c1F=4.2e4, c1R=8.4e4, c2F=2400, c2R=4800,
         FzNomF=2400, FzNomR=4800, ap0F=0.055, ap0R=0.075,
         Kus=1.2e-3, KLA=0.28, grip_frac=0.88),
+
+    # Scandinavian Clubman sports-prototype: 1800 Ford Zetec ~205 hp, ~470 kg race weight,
+    # slicks and a big rear wing -> one of the fastest sportscar classes in Scandinavia.
+    # Huge power-to-weight (~330 W/kg, ~3x the Elise) plus real downforce (ClA baked in).
+    'clubman': _car(
+        'Clubman Racer (470 kg, 205 hp)',
+        m=470, Pmax=153e3, CdA=0.85, Crr=0.012, rho=1.20, mu=1.75, ayFrac=0.92,
+        hcg=0.30, a=1.20, b=1.20,           # L=2.40 m, ~50/50, very low CG
+        Izz=640, tf=1.55, xiF=0.48, kBf=0.60,
+        # slicks; nominal loads scaled to the light axle loads (~1150 N front, ~2300 N rear)
+        c1F=2.2e4, c1R=4.4e4, c2F=1150, c2R=2300,
+        FzNomF=1150, FzNomR=2300, ap0F=0.05, ap0R=0.07,
+        Kus=0.8e-3,            # near-neutral, twitchy
+        KLA=0.32, grip_frac=0.90,
+        ClA=0.5, aeroBal=0.40),   # wing + flat floor; light downforce the lookahead driver holds at speed
 }
 
 

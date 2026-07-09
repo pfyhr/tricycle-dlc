@@ -105,14 +105,15 @@ def flat(car):
                 Crr=t['Crr'], rho=t['rho'], muF=t['muF'], muR=t['muR'], mu=t['muF'],
                 c1F=t['c1F'], c1R=t['c1R'], c2F=t['c2F'], c2R=t['c2R'],
                 FzNomF=t['FzNomF'], FzNomR=t['FzNomR'], ap0F=t['ap0F'], ap0R=t['ap0R'],
-                Pmax=c['Pmax'], ayFrac=c['profile']['ayFrac'], ClA=0.0, aeroBal=0.42,
+                Pmax=c['Pmax'], ayFrac=c['profile']['ayFrac'],
+                ClA=t.get('ClA', 0.0), aeroBal=t.get('aeroBal', 0.42),
                 Lwb=d['Lwb'], Kus=d['Kus'], KLA=d['KLA'], Kr=d['Kr'])
 
 
 print('solving racing lines:')
 TRK = {t: build_track(t) for t in TLIST}
 NAMES = {t: TRACKS[t]['display'] for t in TLIST}
-PRESETS = {c: flat(c) for c in ('elise', 'miata', 'tourer')}
+PRESETS = {c: flat(c) for c in ('elise', 'miata', 'tourer', 'clubman')}
 
 # real telemetry per (track, car): fraction, kmh, real lap seconds from the CSV header
 TEL = {}
