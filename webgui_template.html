@@ -769,7 +769,7 @@ function renderLive(){
     del:y[6], beta:Math.atan2(y[4],Math.max(y[3],1)), s, t:LY.t};
   const g=sampleAt(R,LY.ghostT); ghostP={x:g.x, y:g.y, h:g.h, del:g.del};   // baseline pace car
   drawWorld(p); drawTele(p); fillSessionLive();
-  $('ptime').textContent=fmtT(LY.t)+(LY.laps?'  lap '+(LY.laps+1):'');
+  $('ptime').textContent=fmtT(LY.t-LY.lapStartT)+(LY.laps?'  lap '+(LY.laps+1):'');   // current lap, not session total
   $('scrub').value=Math.round(s/T.L*1000);
   if($('charts').classList.contains('show'))drawSpeedChart();
 }
