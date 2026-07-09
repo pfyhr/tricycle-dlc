@@ -759,8 +759,8 @@ function setDrive(on){
 $('live').onclick=()=>{ if(R)setLive(!pb.live); };
 $('drive').onclick=()=>{ if(R)setDrive(!pb.drive); };
 // ---- car setup / solve ----------------------------------------------------------
-const SL=[['m','Mass',700,1300,1,'kg'],['Pmax','Power',50e3,200e3,1e3,'kW',v=>Math.round(v/1e3)],
-  ['mu','Grip µ',1.0,1.8,0.01,''],['ClA','Downforce',0,5,0.1,'m²']];
+const SL=[['m','Mass',400,1700,1,'kg'],['Pmax','Power',50e3,200e3,1e3,'kW',v=>Math.round(v/1e3)],
+  ['mu','Grip µ',1.0,2.0,0.01,''],['ClA','Downforce',0,5,0.1,'m²']];
 let car, wet=false;
 const sd=$('sliders');
 SL.forEach(([k,lab,mn,mx,st])=>{const el=document.createElement('label');el.className='slider';
