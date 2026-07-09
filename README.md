@@ -2,9 +2,34 @@
 
 ![tests](https://github.com/pfyhr/tricycle-dlc/actions/workflows/ci.yml/badge.svg)
 
-Minimal, defensible planar vehicle model for studying tire forces on the suspension
-links and steering arm during an **ISO 3888-1 double lane change**, with a traditional
-unassisted rack-and-pinion steering.
+Minimal, defensible **planar vehicle model** built around two questions: the tire forces
+that reach the suspension links and steering arm through a traditional **unassisted
+rack-and-pinion** during an **ISO 3888-1 double lane change**, and the **minimum-time lap**
+of a real circuit. The model is Modelica (OpenModelica); a faithful JavaScript port runs the
+whole thing — plant, driver and speed profile — **live in your browser**.
+
+## Live simulator
+
+**→ [pfyhr.github.io/tricycle-dlc](https://pfyhr.github.io/tricycle-dlc/)** — runs in the
+browser, nothing to install.
+
+![Live in-browser simulator](outputs/live_sim.png)
+
+The same 3-DOF plant, lookahead driver and quasi-steady speed profile, ported to JavaScript:
+a full lap solves in a few milliseconds, so there is no backend and nothing to wait for. It
+opens in **real-time driving** — the car laps the circuit under the live physics, and the
+sliders (mass, power, grip μ, downforce, dry/wet) take effect **from wherever the car is right
+now**, no re-solve and no jump back to the line. A translucent **baseline "ghost"** of the car
+as it was before you started tuning laps alongside for comparison: drawn on the track when it
+is near, always a second dot on the minimap, and an edge arrow with the gap in metres when it
+is off-camera. The lap time shown is the **actual** time the car records crossing start/finish
+(marked `*` while you are mid-adjustment — let it complete one clean lap for a representative
+time). A dropdown switches between the five circuits; the chase-camera follow view carries a
+speed / g-g / steering / sideslip HUD, and a **replay** toggle drops back to a scrubbable
+pre-solved lap.
+
+`build_webgui.py` bakes each circuit's minimum-time OCP racing line and geometry into a single
+self-contained `outputs/index.html`, published to GitHub Pages on every push to `main`.
 
 ## Model
 
@@ -106,6 +131,8 @@ python3 track_lap.py    --track=knutstorp         # racing line + speed profile 
 python3 track_lap.py    --track=knutstorp --line=center   # centerline following, for comparison
 python3 track_render.py --track=knutstorp         # chase-camera HTML viewer (outputs/<key>_chase.html):
                                                   # GTA-style follow cam, minimap, speed/yaw/accel HUD
+python3 build_webgui.py                           # build the live browser simulator (outputs/index.html):
+                                                  # JS port of plant+driver, all five tracks, live tuning
 ```
 
 Adding a track is one entry in the `TRACKS` registry in `tracks/fetch_track.py`
