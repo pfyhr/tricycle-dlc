@@ -422,15 +422,101 @@ function drawGhostIndicator(p){
   ctx.textAlign='center'; ctx.textBaseline='middle';
   ctx.fillText('ghost '+Math.round(Math.hypot(dx,dy))+' m', cx+ca*(t-26), cy+sa*(t-26));
 }
+// ---- per-car top-down silhouettes (cosmetic) ------------------------------------
+function smoothLoop(pts){                 // closed Catmull-Rom spline through pts -> Path2D
+  const p=new Path2D(),n=pts.length; p.moveTo(pts[0][0],pts[0][1]);
+  for(let i=0;i<n;i++){ const a=pts[(i-1+n)%n],b=pts[i],c=pts[(i+1)%n],d=pts[(i+2)%n];
+    p.bezierCurveTo(b[0]+(c[0]-a[0])/6,b[1]+(c[1]-a[1])/6,c[0]-(d[0]-b[0])/6,c[1]-(d[1]-b[1])/6,c[0],c[1]); }
+  return p; }
+function openPath(pts){ const p=new Path2D(); p.moveTo(pts[0][0],pts[0][1]);
+  for(let i=1;i<pts.length;i++)p.lineTo(pts[i][0],pts[i][1]); return p; }
+const mir=half=>half.concat(half.slice(1,-1).reverse().map(([x,y])=>[x,-y]));   // top profile -> full loop
+function shade(hex,a){ const n=parseInt(hex.slice(1),16); const f=a<0?0:255,t=Math.abs(a);   // darken(<0)/lighten(>0)
+  const m=v=>Math.round(v+(f-v)*t); return `rgb(${m((n>>16)&255)},${m((n>>8)&255)},${m(n&255)})`; }
+// nose points +x. Symmetric feature lists (heads/tails/mirrors/hoops/popups) store the
+// +y side only and are drawn on both sides. Footprints: Elise 3.9x1.7, Miata 4.0x1.7, M3 4.45x1.7.
+const CARSPEC={
+  elise:{ col:'#f2c40e', trim:'#14110c', wl:0.6,ww:0.22, roadster:true, ws:0.5,
+    body:mir([[1.95,0],[1.87,0.24],[1.74,0.46],[1.5,0.66],[1.18,0.78],[0.75,0.83],[0.3,0.84],[-0.2,0.83],[-0.6,0.85],[-1.0,0.88],[-1.35,0.85],[-1.66,0.64],[-1.86,0.34],[-1.95,0]]),
+    wheels:[[1.15,0.74],[1.15,-0.74],[-1.2,0.76],[-1.2,-0.76]],
+    cockpit:[[0.5,0.44],[0.36,0.54],[-0.08,0.56],[-0.48,0.5],[-0.54,0],[-0.48,-0.5],[-0.08,-0.56],[0.36,-0.54],[0.5,-0.44]],
+    seat:{x:0.06,y:0.25,l:0.4,w:0.28}, hoops:[[-0.5,0.26]], deck:{x0:-0.72,x1:-1.42,n:5,y:0.4},
+    mirrors:[[0.56,0.86]], heads:[[1.55,0.42]], tails:[[-1.72,0.4]],
+    lines:[[[1.32,0.7],[1.26,0.35],[1.24,0],[1.26,-0.35],[1.32,-0.7]]] },
+  miata:{ col:'#d21f26', trim:'#14110c', wl:0.6,ww:0.2, roadster:true, ws:0.46,
+    body:mir([[2.03,0],[1.99,0.14],[1.89,0.36],[1.64,0.58],[1.26,0.73],[0.8,0.8],[0.26,0.82],[-0.3,0.82],[-0.86,0.79],[-1.32,0.66],[-1.68,0.44],[-1.9,0.22],[-2.0,0]]),
+    wheels:[[1.13,0.73],[1.13,-0.73],[-1.18,0.75],[-1.18,-0.75]],
+    cockpit:[[0.46,0.44],[0.32,0.54],[-0.1,0.56],[-0.46,0.5],[-0.52,0],[-0.46,-0.5],[-0.1,-0.56],[0.32,-0.54],[0.46,-0.44]],
+    seat:{x:0.0,y:0.25,l:0.4,w:0.28}, popups:[[1.5,0.4]], mirrors:[[0.52,0.84]], tails:[[-1.82,0.4]],
+    lines:[[[1.18,0.74],[1.1,0.38],[1.08,0],[1.1,-0.38],[1.18,-0.74]]] },
+  tourer:{ col:'#15582f', trim:'#0f1417', wl:0.64,ww:0.24, roadster:false, grille:true, grilleX:2.02,
+    body:mir([[2.24,0],[2.2,0.15],[2.07,0.38],[1.8,0.6],[1.42,0.74],[0.9,0.82],[0.3,0.85],[-0.3,0.855],[-0.9,0.85],[-1.42,0.78],[-1.82,0.6],[-2.06,0.36],[-2.19,0.16],[-2.24,0]]),
+    wheels:[[1.35,0.74],[1.35,-0.74],[-1.35,0.74],[-1.35,-0.74]],
+    greenhouse:[[1.0,0.48],[0.5,0.68],[-0.3,0.72],[-1.0,0.68],[-1.22,0.46],[-1.28,0],[-1.22,-0.46],[-1.0,-0.68],[-0.3,-0.72],[0.5,-0.68],[1.0,-0.48]],
+    roof:[[0.55,0.46],[0.34,0.58],[-0.3,0.62],[-0.85,0.57],[-0.98,0],[-0.85,-0.57],[-0.3,-0.62],[0.34,-0.58],[0.55,-0.46]],
+    mirrors:[[0.72,0.9]], heads:[[1.92,0.32],[1.92,0.56]], tails:[[-2.0,0.5]],
+    lines:[[[1.12,0.76],[1.05,0.4],[1.03,0],[1.05,-0.4],[1.12,-0.76]],
+           [[-1.64,0.72],[-1.68,0.36],[-1.69,0],[-1.68,-0.36],[-1.64,-0.72]],
+           [[1.96,0.2],[1.4,0.3]],[[1.96,-0.2],[1.4,-0.3]]] }
+};
+for(const k in CARSPEC){ const c=CARSPEC[k]; c.bodyP=smoothLoop(c.body);
+  c.topP=smoothLoop(c.body.map(([x,y])=>[x*0.9,y*0.78]));   // raised centre panel -> shoulder line
+  if(c.cockpit)c.cockpitP=smoothLoop(c.cockpit);
+  if(c.greenhouse)c.ghP=smoothLoop(c.greenhouse); if(c.roof)c.roofP=smoothLoop(c.roof);
+  if(c.lines)c.lineP=c.lines.map(openPath); }
+const both=[1,-1];
 function drawCar(x,y,h,del,ghost){
+  const c=CARSPEC[$('preset').value]||CARSPEC.elise;
   ctx.save(); ctx.translate(x,y); ctx.rotate(h); if(ghost)ctx.globalAlpha=0.42;
-  ctx.fillStyle='rgba(0,0,0,.35)'; ctx.beginPath(); ctx.roundRect(-2.05,-0.98,4.1,1.96,0.45); ctx.fill();
-  ctx.fillStyle='#1a1c1e';   // wheels (front steered)
-  for(const[wx,wy,st] of [[1.15,-0.92,del],[1.15,0.92,del],[-1.25,-0.92,0],[-1.25,0.92,0]]){
-    ctx.save();ctx.translate(wx,wy);ctx.rotate(st);ctx.beginPath();ctx.roundRect(-0.42,-0.28,0.84,0.56,0.12);ctx.fill();ctx.restore();}
-  ctx.fillStyle=ghost?'#6b7278':'#d8dade'; ctx.beginPath(); ctx.roundRect(-1.95,-0.82,3.9,1.64,0.42); ctx.fill();
-  ctx.fillStyle=ghost?'#3a3f45':'#23262b'; ctx.beginPath(); ctx.roundRect(-0.35,-0.62,1.15,1.24,0.22); ctx.fill();
-  if(!ghost){ctx.fillStyle=css('--accent'); ctx.fillRect(1.55,-0.5,0.32,1.0);}
+  ctx.fillStyle='rgba(0,0,0,.26)'; ctx.save(); ctx.translate(0.08,0.07); ctx.fill(c.bodyP); ctx.restore();
+  c.wheels.forEach(([wx,wy],i)=>{ ctx.save();ctx.translate(wx,wy);if(i<2)ctx.rotate(del);  // wheels (front pair steers)
+    ctx.fillStyle='#111214'; ctx.beginPath();ctx.roundRect(-c.wl/2,-c.ww/2,c.wl,c.ww,0.09);ctx.fill();
+    ctx.strokeStyle='rgba(196,202,208,.22)'; ctx.lineWidth=0.03;   // rim highlight along the tyre
+    ctx.beginPath();ctx.moveTo(-c.wl*0.3,0);ctx.lineTo(c.wl*0.3,0);ctx.stroke(); ctx.restore(); });
+  ctx.fillStyle=ghost?'#6f757c':shade(c.col,-0.1); ctx.fill(c.bodyP);   // lower body (darker sills)
+  ctx.strokeStyle=ghost?'rgba(0,0,0,.22)':'rgba(0,0,0,.32)'; ctx.lineWidth=0.045; ctx.stroke(c.bodyP);
+  ctx.fillStyle=ghost?'#7d838a':c.col; ctx.fill(c.topP);      // raised centre panel = shoulder line
+  ctx.strokeStyle='rgba(0,0,0,.16)'; ctx.lineWidth=0.028; ctx.stroke(c.topP);
+  if(ghost){ ctx.restore(); return; }
+  ctx.save(); ctx.clip(c.bodyP);                              // everything below stays inside the body
+  ctx.fillStyle='rgba(0,0,0,.16)';                           // fender-lip shadow: mostly clipped away, leaving a crescent
+  c.wheels.forEach(([wx,wy])=>{ const s=Math.sign(wy);
+    ctx.beginPath(); ctx.ellipse(wx,wy+s*0.14,c.wl*0.52,c.ww*1.25,0,0,7); ctx.fill(); });
+  const gr=ctx.createLinearGradient(-0.55,-0.9,0.35,0.9);    // curved-body gloss (top-lit, offset to one side)
+  gr.addColorStop(0,'rgba(255,255,255,.2)'); gr.addColorStop(.4,'rgba(255,255,255,.04)');
+  gr.addColorStop(.6,'rgba(0,0,0,.03)'); gr.addColorStop(1,'rgba(0,0,0,.16)');
+  ctx.fillStyle=gr; ctx.fill(c.bodyP); ctx.restore();
+  if(c.lineP){ ctx.strokeStyle='rgba(0,0,0,.24)'; ctx.lineWidth=0.03; for(const lp of c.lineP)ctx.stroke(lp); }
+  if(c.roadster){                                             // open cockpit: tub, seats, hoops, windscreen
+    ctx.fillStyle=c.trim; ctx.fill(c.cockpitP);
+    for(const sy of both){ const s=c.seat;                    // seat + inner bolster
+      ctx.fillStyle='#2c3035'; ctx.beginPath(); ctx.roundRect(s.x-s.l/2,sy*s.y-s.w/2,s.l,s.w,0.07); ctx.fill();
+      ctx.fillStyle='#3b4046'; ctx.beginPath(); ctx.roundRect(s.x-s.l/2,sy*s.y-s.w/2,0.11,s.w,0.05); ctx.fill(); }
+    if(c.hoops){ ctx.fillStyle=shade(c.col,-0.28);            // twin roll hoops behind the seats
+      for(const[hx,hy] of c.hoops)for(const s of both){ ctx.beginPath(); ctx.roundRect(hx-0.1,s*hy-0.11,0.2,0.22,0.07); ctx.fill(); } }
+    if(c.deck){ ctx.strokeStyle='rgba(0,0,0,.32)'; ctx.lineWidth=0.028;   // engine-deck louvres
+      for(let i=0;i<c.deck.n;i++){ const dx=c.deck.x0+(c.deck.x1-c.deck.x0)*i/(c.deck.n-1);
+        ctx.beginPath(); ctx.moveTo(dx,c.deck.y); ctx.lineTo(dx,-c.deck.y); ctx.stroke(); } }
+    ctx.fillStyle='rgba(200,216,228,.55)';                    // curved windscreen band
+    ctx.beginPath(); ctx.moveTo(c.ws,0.44); ctx.quadraticCurveTo(c.ws+0.15,0,c.ws,-0.44);
+    ctx.lineTo(c.ws-0.1,-0.38); ctx.quadraticCurveTo(c.ws+0.03,0,c.ws-0.1,0.38); ctx.closePath(); ctx.fill();
+    if(c.popups){ for(const[px,py] of c.popups)for(const s of both){   // Miata pop-up headlamps
+      ctx.fillStyle=shade(c.col,-0.14); ctx.beginPath(); ctx.ellipse(px,s*py,0.18,0.15,0,0,7); ctx.fill();
+      ctx.fillStyle='#fdf3cf'; ctx.beginPath(); ctx.ellipse(px+0.02,s*py,0.1,0.09,0,0,7); ctx.fill(); } }
+  } else {                                                    // coupe greenhouse; solid roof (no sunroof)
+    ctx.fillStyle='#1b2026'; ctx.fill(c.ghP);
+    ctx.fillStyle=c.col; ctx.fill(c.roofP);
+    ctx.strokeStyle='rgba(0,0,0,.28)'; ctx.lineWidth=0.028; ctx.stroke(c.roofP);
+  }
+  if(c.mirrors){ for(const[mx,my] of c.mirrors)for(const s of both){   // door mirrors
+    ctx.fillStyle=shade(c.col,-0.08); ctx.beginPath(); ctx.roundRect(mx-0.08,s*my-0.055,0.16,0.11,0.04); ctx.fill();
+    ctx.fillStyle='rgba(0,0,0,.35)'; ctx.beginPath(); ctx.roundRect(mx-0.05,s*my-0.03,0.07,0.06,0.02); ctx.fill(); } }
+  if(c.heads){ ctx.fillStyle='#fdf3cf'; for(const[hx,hy] of c.heads)for(const s of both){
+    ctx.beginPath(); ctx.ellipse(hx,s*hy,0.12,0.1,0,0,7); ctx.fill(); } }
+  ctx.fillStyle='#e22a24'; for(const[tx,ty] of c.tails)for(const s of both){   // taillights
+    ctx.beginPath(); ctx.roundRect(tx-0.06,s*ty-0.15,0.12,0.3,0.04); ctx.fill(); }
+  if(c.grille){ ctx.fillStyle='#0e1113'; for(const gy of [0.11,-0.11]){   // BMW twin-kidney
+    ctx.beginPath(); ctx.roundRect(c.grilleX-0.09,gy-0.055,0.18,0.11,0.03); ctx.fill(); } }
   ctx.restore();
 }
 // ---- minimap (path prerendered per track in buildGeom) --------------------------
