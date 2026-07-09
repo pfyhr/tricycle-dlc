@@ -201,7 +201,10 @@ let T, curTrack;                 // current track table (switchable); set by bui
 const $=id=>document.getElementById(id);
 // ---- physics constants + fixed driver/profile calibration -----------------------
 const C={uMin:1,uPrevMin:5,tauSteer:0.10,tauRoll:0.15,tauPitch:0.20,TpV:1.0,TpFF:0.6,
-  xLA0:5.0,TLA:0.25,dMax:0.35,g:9.80665};   // club-driver reflexes: quick hands, big preview
+  xLA0:5.0,TLA:0.25,uLAcap:38,uKnee:40,uWid:14,dMax:0.35,g:9.80665};   // club-driver reflexes: quick hands, big preview
+// uLAcap: cap the speed used for the lookahead distance (bounded preview). The path-feedback gain is held
+// full below uKnee (~150 km/h — every corner) and rolls off above it (width uWid) so the high-speed
+// straight-line steering limit cycle is damped without touching cornering tracking.
 const GRIP_DERATE=0.90;   // speed profile budgets the grip the plant actually sustains…
                           //   (lower = cleaner line but slower; higher = faster but runs wider)
 const MASS_EXP=0.5;       // …reduced further when the car is loaded past its design mass
@@ -250,8 +253,9 @@ function deriv(y,P,vRef){
   const nRef=interp(T.nRef,s),psiRef=interp(T.psiRef,s),kapNow=interp(T.kapLine,s);
   const kapLine=interp(T.kapLine,s+up*C.TpFF), dPrev=up*C.TpV, vRefP=interp(vRef,s+dPrev);
   const deltaFF=interp(T.deltaFF,s+up*C.TpFF);   // OCP sideslip steer FF (holds the min-time line)
-  const xLA=C.xLA0+C.TLA*up, eLA=(n-nRef)+xLA*(dp-psiRef);
-  const dCmd=C.dMax*Math.tanh(((P.Lwb+P.Kus*u*u)*kapLine+deltaFF-KMUL*P.KLA*eLA-P.Kr*(r-kapNow*u))/C.dMax);
+  const xLA=C.xLA0+C.TLA*Math.min(up,C.uLAcap), eLA=(n-nRef)+xLA*(dp-psiRef);
+  const gHi=1/(1+Math.pow(Math.max(0,up-C.uKnee)/C.uWid,2));   // full below uKnee; rolls off on fast straights
+  const dCmd=C.dMax*Math.tanh(((P.Lwb+P.Kus*u*u)*kapLine+deltaFF-gHi*KMUL*P.KLA*eLA-P.Kr*(r-kapNow*u))/C.dMax);
   // longitudinal preview: follow the reference speed, but scan a braking horizon so the driver
   // sheds speed early for a slow corner sitting beyond the fixed-time preview point. A single
   // preview under-brakes into hairpins -> arrives hot -> understeers wide on exit.
