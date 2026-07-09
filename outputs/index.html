@@ -504,6 +504,7 @@ function stepLive(dtsim){                  // integrate the plant by wall time (
       y3=y.map((v,i)=>v+0.5*h*k2.dy[i]), k3=deriv(y3,P,vRef),
       y4=y.map((v,i)=>v+h*k3.dy[i]), k4=deriv(y4,P,vRef);
     y=y.map((v,i)=>v+h/6*(k1.dy[i]+2*k2.dy[i]+2*k3.dy[i]+k4.dy[i])); last=k1; rem-=h; }
+  if(!last)return;                          // zero-length step (e.g. the first frame after enabling live)
   if(y[0]>=T.L){ y[0]-=T.L; LY.laps++; }   // endless laps
   LY.y=y; LY.t+=dtsim; LY.ax=last.ax/C.g; LY.ay=last.ay/C.g;
 }
