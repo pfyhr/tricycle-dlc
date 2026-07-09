@@ -98,6 +98,15 @@ input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;bac
 #charts .cap b{font-weight:400;color:var(--ink)}
 .sw{display:inline-block;width:9px;height:9px;border-radius:2px;vertical-align:middle;margin-right:4px}
 
+/* drive-yourself: mode button highlight + control hint above the playback bar */
+#drive.on{border-color:var(--accent);color:var(--accent)}
+#drivehint{position:fixed;left:50%;bottom:60px;transform:translateX(-50%);display:none;
+  background:var(--panel);border:1px solid var(--panel-line);border-radius:8px;
+  padding:6px 14px;font-size:12px;letter-spacing:.4px;color:var(--ink-dim);pointer-events:none;
+  backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);white-space:nowrap}
+body.driving #drivehint{display:block}
+body.driving.touched #drivehint{display:none}   /* hide the prompt once the player is driving */
+
 /* mobile-only "car setup" toggle button (hidden on desktop, where the panel is always shown) */
 #setupToggle{display:none;position:fixed;z-index:5;background:var(--panel);color:var(--ink);
   border:1px solid var(--panel-line);border-radius:9px;font-family:var(--sans);font-size:12px;
@@ -188,12 +197,14 @@ input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;bac
 <div class="hud" id="ctrl">
   <button id="play" aria-label="play/pause">▶</button>
   <button id="live" title="real-time live driving: parameter changes apply from the car's current state, no re-solve">live</button>
+  <button id="drive" title="drive it yourself — arrow keys on desktop, touch-drag on phone; race the AI ghost">drive</button>
   <input id="scrub" type="range" min="0" max="1000" value="0">
   <span class="spd clock"><span id="ptime">0:00.0</span> / <span id="ltot">0:00.0</span></span>
   <span class="spd">speed <select id="pspeed"><option>0.5</option><option selected>1</option><option>2</option><option>4</option></select>×</span>
   <span class="spd" id="zoomctl">zoom <input class="z" id="zoom" type="range" min="60" max="240" value="120"></span>
   <button id="chartsBtn">charts</button>
 </div>
+<div id="drivehint"></div>
 
 <script>
 const D=__DATA__;
@@ -245,34 +256,45 @@ function profile(P){
   v.push(v[0]);            // wrap to match the N+1 knot vector T.s (interp reads index N at s=L)
   return v;
 }
-function deriv(y,P,vRef){
+function deriv(y,P,vRef,ctrl){
   const s=y[0],n=y[1],dp=y[2],u=y[3],vy=y[4],r=y[5],delta=y[6],dFz=y[7],dFzX=y[8];
   const G=C.g,L=P.a+P.b,uG=Math.max(u,C.uMin), kap=interp(T.kap_c,s);
   const cd0=Math.cos(dp),sd0=Math.sin(dp), sdot=(u*cd0-vy*sd0)/Math.max(1-n*kap,0.2);
-  const up=Math.max(u,C.uPrevMin);
-  const nRef=interp(T.nRef,s),psiRef=interp(T.psiRef,s),kapNow=interp(T.kapLine,s);
-  const kapLine=interp(T.kapLine,s+up*C.TpFF), dPrev=up*C.TpV, vRefP=interp(vRef,s+dPrev);
-  const deltaFF=interp(T.deltaFF,s+up*C.TpFF);   // OCP sideslip steer FF (holds the min-time line)
-  const xLA=C.xLA0+C.TLA*Math.min(up,C.uLAcap), eLA=(n-nRef)+xLA*(dp-psiRef);
-  const gHi=1/(1+Math.pow(Math.max(0,up-C.uKnee)/C.uWid,2));   // full below uKnee; rolls off on fast straights
-  const dCmd=C.dMax*Math.tanh(((P.Lwb+P.Kus*u*u)*kapLine+deltaFF-gHi*KMUL*P.KLA*eLA-P.Kr*(r-kapNow*u))/C.dMax);
-  // longitudinal preview: follow the reference speed, but scan a braking horizon so the driver
-  // sheds speed early for a slow corner sitting beyond the fixed-time preview point. A single
-  // preview under-brakes into hairpins -> arrives hot -> understeers wide on exit.
-  let axCmd=(vRefP*vRefP-u*u)/(2*dPrev);
-  for(let d=8;d<=up*2.2+10;d+=6){const vq=interp(vRef,s+d);
-    if(vq<u){const a=(vq*vq-u*u)/(2*d); if(a<axCmd)axCmd=a;}}
+  let dCmd, axCmd;
+  if(ctrl){                                      // human driving: steer + throttle/brake come from the player
+    dCmd=-ctrl.steer*C.dMax; axCmd=ctrl.ax;   // steer>0 is a right turn for the driver; plant delta>0 is left
+  } else {                                        // AI driver: lookahead-error steering + speed-profile long.
+    const up=Math.max(u,C.uPrevMin);
+    const nRef=interp(T.nRef,s),psiRef=interp(T.psiRef,s),kapNow=interp(T.kapLine,s);
+    const kapLine=interp(T.kapLine,s+up*C.TpFF), dPrev=up*C.TpV, vRefP=interp(vRef,s+dPrev);
+    const deltaFF=interp(T.deltaFF,s+up*C.TpFF);   // OCP sideslip steer FF (holds the min-time line)
+    const xLA=C.xLA0+C.TLA*Math.min(up,C.uLAcap), eLA=(n-nRef)+xLA*(dp-psiRef);
+    const gHi=1/(1+Math.pow(Math.max(0,up-C.uKnee)/C.uWid,2));   // full below uKnee; rolls off on fast straights
+    dCmd=C.dMax*Math.tanh(((P.Lwb+P.Kus*u*u)*kapLine+deltaFF-gHi*KMUL*P.KLA*eLA-P.Kr*(r-kapNow*u))/C.dMax);
+    // longitudinal preview: follow the reference speed, but scan a braking horizon so the driver
+    // sheds speed early for a slow corner sitting beyond the fixed-time preview point. A single
+    // preview under-brakes into hairpins -> arrives hot -> understeers wide on exit.
+    axCmd=(vRefP*vRefP-u*u)/(2*dPrev);
+    for(let d=8;d<=up*2.2+10;d+=6){const vq=interp(vRef,s+d);
+      if(vq<u){const a=(vq*vq-u*u)/(2*d); if(a<axCmd)axCmd=a;}}
+  }
   const aFL=delta-Math.atan((vy+P.a*r)/Math.max(u-r*P.tf/2,C.uMin));
   const aFR=delta-Math.atan((vy+P.a*r)/Math.max(u+r*P.tf/2,C.uMin));
   const aR=-Math.atan((vy-P.b*r)/uG);
+  // drive-yourself: soft-ground penalty past the drivable edge - mostly extra rolling drag
+  // (grass scrubs speed), plus a light grip trim so it feels loose. AI stays on the tarmac,
+  // so gate on ctrl to leave its validated laps untouched.
+  let muFe=P.muF, muRe=P.muR, Crre=P.Crr;
+  if(ctrl){ const g=Math.min(Math.max((Math.abs(n)-(T.width/2-0.9))/0.6,0),1);
+    if(g>0){ Crre=P.Crr*(1+7*g); muFe=P.muF*(1-0.25*g); muRe=P.muR*(1-0.25*g); } }
   const Fdown=0.5*P.rho*P.ClA*u*u, Fz0F=P.m*G*P.b/(2*L)+P.aeroBal*Fdown/2, Fz0R=P.m*G*P.a/L+(1-P.aeroBal)*Fdown;
   const FzFL=Fz0F-dFz-dFzX/2,FzFR=Fz0F+dFz-dFzX/2,FzR=Fz0R+dFzX;
   const tF={c1:P.c1F,c2:P.c2F,FzNom:P.FzNomF,ap0:P.ap0F},tR={c1:P.c1R,c2:P.c2R,FzNom:P.FzNomR,ap0:P.ap0R};
-  const FL=brush(aFL,FzFL,tF,P.muF),FR=brush(aFR,FzFR,tF,P.muF),RR=brush(aR,FzR,tR,P.muR);
-  const Froll=P.Crr*P.m*G,Fdrag=0.5*P.rho*P.CdA*u*u,Freq=P.m*axCmd+Fdrag+Froll;
+  const FL=brush(aFL,FzFL,tF,muFe),FR=brush(aFR,FzFR,tF,muFe),RR=brush(aR,FzR,tR,muRe);
+  const Froll=Crre*P.m*G,Fdrag=0.5*P.rho*P.CdA*u*u,Freq=P.m*axCmd+Fdrag+Froll;
   const FreqPos=0.5*(Freq+Math.sqrt(Freq*Freq+1e4)),FreqNeg=Freq-FreqPos;
   const em=(Fy,mu,Fz)=>mu*Fz*Math.sqrt(smax(1-Math.pow(Fy/(mu*Fz),2),0,0.02));
-  const FxRMax=em(RR.Fy,P.muR,FzR),FxFLMax=em(FL.Fy,P.muF,FzFL),FxFRMax=em(FR.Fy,P.muF,FzFR);
+  const FxRMax=em(RR.Fy,muRe,FzR),FxFLMax=em(FL.Fy,muFe,FzFL),FxFRMax=em(FR.Fy,muFe,FzFR);
   const FxR=smin(smin(FreqPos,P.Pmax/uG,100),FxRMax,100)+smax((1-P.kBf)*FreqNeg,-FxRMax,100);
   const FxFL=smax(0.5*P.kBf*FreqNeg,-FxFLMax,100),FxFR=smax(0.5*P.kBf*FreqNeg,-FxFRMax,100);
   const cd=Math.cos(delta),sd=Math.sin(delta);
@@ -368,6 +390,16 @@ function drawWorld(p){
   if(pb.live&&ghostP)drawCar(ghostP.x,ghostP.y,ghostP.h,ghostP.del,true);
   drawCar(p.x,p.y,p.h,p.del,false);
   if(pb.live&&ghostP)drawGhostIndicator(p);
+  if(pb.drive&&drv.touch)drawJoystick();
+}
+function drawJoystick(){                       // the on-screen virtual stick (touch driving)
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const o=drv.touch, R0=64, a=css('--accent');
+  ctx.strokeStyle='rgba(232,193,90,.30)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(o.ox,o.oy,R0,0,7); ctx.stroke();
+  const kx=o.ox+Math.max(-R0,Math.min(R0,o.x-o.ox)), ky=o.oy+Math.max(-R0,Math.min(R0,o.y-o.oy));
+  ctx.strokeStyle='rgba(232,193,90,.5)'; ctx.beginPath(); ctx.moveTo(o.ox,o.oy); ctx.lineTo(kx,ky); ctx.stroke();
+  ctx.fillStyle='rgba(232,193,90,.75)'; ctx.beginPath(); ctx.arc(kx,ky,17,0,7); ctx.fill();
 }
 // when the baseline ghost is off the chase cam, point an edge arrow at it with the gap in metres
 function drawGhostIndicator(p){
@@ -501,9 +533,12 @@ function sampleAt(R,tq){const o=R.o,Nn=o.x.length; let fi=tq/R.dt; if(fi>Nn-1.00
     ax:lerp(o.ax,f,i),ay:lerp(o.ay,f,i),yaw:lerp(o.yaw,f,i),del:lerp(o.del,f,i),beta:lerp(o.beta,f,i),
     s:lerp(o.s,f,i),t:tq};}
 const fmtT=s=>{const m=Math.floor(s/60);return m+':'+(s-60*m).toFixed(1).padStart(4,'0');};
-let R=null, pb={t:0,playing:false,speed:1,last:0,live:false}, scrubbing=false;
+let R=null, pb={t:0,playing:false,speed:1,last:0,live:false,drive:false}, scrubbing=false;
 let LY=null, LP=null, LvRef=null;   // live real-time driving: persistent 9-state + live params/profile
 let ghostP=null;                    // baseline ghost screen pose (drawn behind the live car)
+// drive-yourself inputs: steer/thr/brk are analog [-1..1]/[0..1]; left/right are keyboard hold flags;
+// touch holds the on-screen joystick origin+knob (null on desktop / when not touching)
+const drv={steer:0, thr:0, brk:0, left:false, right:false, touch:null};
 function renderFrame(){ if(!R)return; const p=sampleAt(R,pb.t);
   drawWorld(p); drawTele(p);
   $('ptime').textContent=fmtT(pb.t);
@@ -539,14 +574,25 @@ function seedLiveCold(){                    // fresh start on the line (track ch
   return Object.assign({y:[0,interp(T.nRef,0),interp(T.psiRef,0),LvRef[0],0,0,0,0,0],
           t:0, laps:0, ax:0, ay:0}, liveMeta(0));
 }
+function driveCtrl(){                        // human control vector for deriv (throttle/brake -> target accel)
+  const u=LY.y[3], P=LP, coast=-(0.5*P.rho*P.CdA*u*u+P.Crr*P.m*C.g)/P.m;   // engine-off drag decel
+  const ax = drv.thr>0.02 ? 3+drv.thr*10 : drv.brk>0.02 ? -drv.brk*16 : coast;
+  return {steer:drv.steer, ax};
+}
 function stepLive(dtsim){                   // integrate the plant by wall time (RK4 substeps, h<=0.006)
   const P=LP, vRef=LvRef, dt=0.006; let y=LY.y, last=null, rem=Math.min(dtsim,0.15);
+  if(pb.drive&&!drv.touch){                 // keyboard steering: ramp toward the held direction, self-centre
+    const rate=3.2, ret=4.2;
+    if(drv.left===drv.right) drv.steer-=Math.sign(drv.steer)*Math.min(Math.abs(drv.steer),ret*dtsim);
+    else drv.steer=Math.max(-1,Math.min(1, drv.steer+(drv.right?1:-1)*rate*dtsim)); }
+  const ctrl=pb.drive?driveCtrl():null;
   while(rem>1e-6){ const h=Math.min(dt,rem);
-    const k1=deriv(y,P,vRef), y2=y.map((v,i)=>v+0.5*h*k1.dy[i]), k2=deriv(y2,P,vRef),
-      y3=y.map((v,i)=>v+0.5*h*k2.dy[i]), k3=deriv(y3,P,vRef),
-      y4=y.map((v,i)=>v+h*k3.dy[i]), k4=deriv(y4,P,vRef);
+    const k1=deriv(y,P,vRef,ctrl), y2=y.map((v,i)=>v+0.5*h*k1.dy[i]), k2=deriv(y2,P,vRef,ctrl),
+      y3=y.map((v,i)=>v+0.5*h*k2.dy[i]), k3=deriv(y3,P,vRef,ctrl),
+      y4=y.map((v,i)=>v+h*k3.dy[i]), k4=deriv(y4,P,vRef,ctrl);
     y=y.map((v,i)=>v+h/6*(k1.dy[i]+2*k2.dy[i]+2*k3.dy[i]+k4.dy[i])); last=k1; rem-=h; }
   if(!last)return;                          // zero-length step (e.g. the first frame after enabling live)
+  if(pb.drive&&drv.thr<0.02&&y[3]<0){ y[3]=0; y[4]=0; y[5]=0; }   // no reverse gear: brake/coast holds at rest
   LY.t+=dtsim; LY.ghostT+=dtsim; if(LY.ghostT>=R.lap)LY.ghostT-=R.lap;   // ghost loops the baseline lap
   if(y[0]>=T.L){ y[0]-=T.L; LY.laps++;      // crossed start/finish -> bank the actual lap time
     LY.lastLap=LY.t-LY.lapStartT; LY.lastClean=LY.clean;
@@ -583,9 +629,21 @@ function setLive(on){
   pb.live=on; $('live').classList.toggle('on',on); $('scrub').disabled=on;
   if(on){ liveUpdate(); LY=seedLive();      // R stays the baseline lap -> ghost replays it
     if(!pb.playing){ pb.playing=true; $('play').textContent='❚❚'; } pb.last=0; }
-  else { ghostP=null; pb.t=0; run(); }
+  else { setDrive(false); ghostP=null; pb.t=0; run(); }
+}
+// drive yourself: hand the wheel to the player (arrow keys / touch), still real-time, racing the AI ghost
+function setDrive(on){
+  pb.drive=on; $('drive').classList.toggle('on',on); document.body.classList.toggle('driving',on);
+  document.body.classList.remove('touched');   // re-show the control hint on each entry
+  drv.steer=0; drv.thr=0; drv.brk=0; drv.left=false; drv.right=false; drv.touch=null;
+  if(on){ if(!pb.live)setLive(true);        // driving implies live real-time
+    if(!pb.playing){ pb.playing=true; $('play').textContent='❚❚'; pb.last=0; }
+    $('drivehint').textContent = ('ontouchstart' in window)
+      ? 'drag anywhere: ◂ ▸ steer · ▴ throttle · ▾ brake'
+      : '↑ throttle   ↓ brake   ← → steer'; }
 }
 $('live').onclick=()=>{ if(R)setLive(!pb.live); };
+$('drive').onclick=()=>{ if(R)setDrive(!pb.drive); };
 // ---- car setup / solve ----------------------------------------------------------
 const SL=[['m','Mass',700,1300,1,'kg'],['Pmax','Power',50e3,200e3,1e3,'kW',v=>Math.round(v/1e3)],
   ['mu','Grip µ',1.0,1.8,0.01,''],['ClA','Downforce',0,5,0.1,'m²']];
@@ -643,11 +701,28 @@ $('chartsBtn').onclick=()=>{const c=$('charts');c.classList.toggle('show');
 $('setupToggle').onclick=()=>{const open=$('garage').classList.toggle('open');   // mobile car-setup sheet
   $('setupToggle').classList.toggle('on',open); $('setupToggle').setAttribute('aria-expanded',open);
   $('setupToggle').textContent=open?'car setup ▴':'car setup ▾';};
+const DRVKEY={ArrowUp:'thr',ArrowDown:'brk',ArrowLeft:'left',ArrowRight:'right',   // arrows...
+  KeyW:'thr',KeyS:'brk',KeyA:'left',KeyD:'right'};                                // ...or WASD
 addEventListener('keydown',e=>{
+  if(pb.drive&&DRVKEY[e.code]){ e.preventDefault(); document.body.classList.add('touched');
+    const a=DRVKEY[e.code]; if(a==='thr')drv.thr=1; else if(a==='brk')drv.brk=1; else drv[a]=true; return; }
   if(e.code==='Space'){e.preventDefault();$('play').click();}
   if(e.code==='ArrowRight'&&R&&!pb.live){pb.t=Math.min(pb.t+3,R.lap-0.01);renderFrame();}
   if(e.code==='ArrowLeft'&&R&&!pb.live){pb.t=Math.max(pb.t-3,0);renderFrame();}
 });
+addEventListener('keyup',e=>{ if(!pb.drive||!DRVKEY[e.code])return;
+  const a=DRVKEY[e.code]; if(a==='thr')drv.thr=0; else if(a==='brk')drv.brk=0; else drv[a]=false; });
+// touch-drag anywhere on the world = a virtual stick: horizontal steers, vertical is throttle/brake
+const stickR=64, updTouch=()=>{ const dx=drv.touch.x-drv.touch.ox, dy=drv.touch.y-drv.touch.oy;
+  drv.steer=Math.max(-1,Math.min(1,dx/stickR));
+  if(dy<0){drv.thr=Math.min(1,-dy/stickR);drv.brk=0;}else{drv.brk=Math.min(1,dy/stickR);drv.thr=0;} };
+cv.addEventListener('touchstart',e=>{ if(!pb.drive)return; e.preventDefault();
+  const t=e.changedTouches[0]; drv.touch={ox:t.clientX,oy:t.clientY,x:t.clientX,y:t.clientY};
+  document.body.classList.add('touched'); updTouch(); },{passive:false});
+cv.addEventListener('touchmove',e=>{ if(!pb.drive||!drv.touch)return; e.preventDefault();
+  const t=e.changedTouches[0]; drv.touch.x=t.clientX; drv.touch.y=t.clientY; updTouch(); },{passive:false});
+const endTouch=e=>{ if(!pb.drive)return; drv.touch=null; drv.steer=0; drv.thr=0; drv.brk=0; };
+cv.addEventListener('touchend',endTouch); cv.addEventListener('touchcancel',endTouch);
 addEventListener('resize',()=>{if(R){renderFrame();drawCharts();}});
 requestAnimationFrame(tick);
 buildGeom(D.default); $('track').value=D.default;
