@@ -363,6 +363,28 @@ function drawWorld(p){
   // at its own pace so you can see how far your tuning has pulled ahead of / behind it
   if(pb.live&&ghostP)drawCar(ghostP.x,ghostP.y,ghostP.h,ghostP.del,true);
   drawCar(p.x,p.y,p.h,p.del,false);
+  if(pb.live&&ghostP)drawGhostIndicator(p);
+}
+// when the baseline ghost is off the chase cam, point an edge arrow at it with the gap in metres
+function drawGhostIndicator(p){
+  const k=H/viewH, cx=W/2, cy=H*0.62, cs=Math.cos(p.h), sn=Math.sin(p.h);
+  const dx=ghostP.x-p.x, dy=ghostP.y-p.y;
+  const gx=cx+k*(sn*dx-cs*dy), gy=cy-k*(cs*dx+sn*dy);   // ghost in screen space (CSS px)
+  const m=34;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  if(gx>=m&&gx<=W-m&&gy>=m&&gy<=H-m)return;             // on-screen: the ghost car itself is visible
+  const ang=Math.atan2(gy-cy,gx-cx), ca=Math.cos(ang), sa=Math.sin(ang);
+  let t=Infinity;                                        // ray from centre to the edge box in ghost dir
+  if(ca>0)t=Math.min(t,(W-m-cx)/ca); else if(ca<0)t=Math.min(t,(m-cx)/ca);
+  if(sa>0)t=Math.min(t,(H-m-cy)/sa); else if(sa<0)t=Math.min(t,(m-cy)/sa);
+  const ex=cx+ca*t, ey=cy+sa*t;
+  ctx.save(); ctx.translate(ex,ey); ctx.rotate(ang);
+  ctx.fillStyle='rgba(150,156,163,.92)';
+  ctx.beginPath();ctx.moveTo(10,0);ctx.lineTo(-7,-6.5);ctx.lineTo(-7,6.5);ctx.closePath();ctx.fill();
+  ctx.restore();
+  ctx.fillStyle='rgba(190,196,203,.95)'; ctx.font='600 11px ui-sans-serif,system-ui,-apple-system,sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('ghost '+Math.round(Math.hypot(dx,dy))+' m', cx+ca*(t-26), cy+sa*(t-26));
 }
 function drawCar(x,y,h,del,ghost){
   ctx.save(); ctx.translate(x,y); ctx.rotate(h); if(ghost)ctx.globalAlpha=0.42;
