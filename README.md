@@ -6,7 +6,8 @@ Minimal, defensible **planar vehicle model** built around two questions: the tir
 that reach the suspension links and steering arm through a traditional **unassisted
 rack-and-pinion** during an **ISO 3888-1 double lane change**, and the **minimum-time lap**
 of a real circuit. The model is Modelica (OpenModelica); a faithful JavaScript port runs the
-whole thing — plant, driver and speed profile — **live in your browser**.
+whole thing — plant, driver and speed profile — **live in your browser**, and the headline
+cars are **calibrated against real GPS+IMU lap telemetry** from Ring Knutstorp.
 
 ## Live simulator
 
@@ -26,12 +27,141 @@ is off-camera. The lap time shown is the **actual** time the car records crossin
 (marked `*` while you are mid-adjustment — let it complete one clean lap for a representative
 time). A dropdown switches between the five circuits; the chase-camera follow view carries a
 speed / g-g / steering / sideslip HUD, and a **replay** toggle drops back to a scrubbable
-pre-solved lap.
+pre-solved lap. **Drive** hands you the wheel — arrow keys or WASD on desktop, touch-drag on
+a phone — racing the AI ghost under the same physics, and **⟲ restart** launches you and the
+ghost together from the line with whatever car you have built on the sliders.
 
 `build_webgui.py` bakes each circuit's minimum-time OCP racing line and geometry into a single
 self-contained `outputs/index.html`, published to GitHub Pages on every push to `main`.
 
-## Model
+## The vehicle model (what actually runs in your browser)
+
+Everything below lives in `webgui_template.html` as ~120 lines of physics — a faithful port
+of the Modelica `Track.TrackTricycle` plant (see the next section for its origin), integrated
+with fixed-step **RK4 at dt = 6 ms**. A full lap is ~12 000 steps and solves in a few
+milliseconds, which is what makes live re-tuning and real-time driving free.
+
+### Plant: 9 states, three wheels
+
+The chassis is a planar two-track-front / lumped-rear **"tricycle"** in track (Frenet)
+coordinates. State vector:
+
+| # | State | Meaning |
+|--:|---|---|
+| 1 | `s` | distance along the centerline |
+| 2 | `n` | lateral offset from the centerline |
+| 3 | `Δψ` | heading error to the centerline tangent |
+| 4 | `u` | longitudinal (body) speed |
+| 5 | `v_y` | lateral (body) speed |
+| 6 | `r` | yaw rate |
+| 7 | `δ` | actual road-wheel steer (first-order actuator, τ = 0.10 s) |
+| 8 | `ΔF_z` | lateral load transfer across the front axle (roll-mode lag, τ = 0.15 s) |
+| 9 | `ΔF_zx` | longitudinal load transfer (pitch-mode lag, τ = 0.20 s) |
+
+Path kinematics couple the chassis to the road: `ṡ = (u·cosΔψ − v_y·sinΔψ)/(1 − n·κ)` and
+`Δψ̇ = r − κ·ṡ`, with κ the local centerline curvature. The two front wheels carry their own
+slip angles (they differ by the yaw-rate term `± r·t_f/2` in the velocity at each contact
+patch), their own normal loads, and their own aligning moments — which is why lateral load
+transfer genuinely costs front grip and the car pushes when loaded. The rear axle is one
+lumped wheel.
+
+### Tyres: analytic brush model
+
+Each wheel runs the Pacejka **brush** model (Tyre and Vehicle Dynamics, ch. 3), which is
+smooth, event-free and cheap:
+
+- cornering stiffness with degressive load sensitivity: `C_α(F_z) = c1·sin(2·atan(F_z/c2))` —
+  doubling the load less-than-doubles the stiffness, so transferring load across an axle
+  always loses net grip;
+- lateral force `F_y = µF_z·(1 − λ³)·sgn(α)` where `λ` collapses from 1 to 0 as the slip
+  approaches the friction limit (`θ = C_α/(3µF_z)`);
+- aligning moment from a pneumatic trail `a_p(F_z) = a_p0·√(F_z/F_znom)` that collapses to
+  zero at the limit — the steering "goes light" exactly when the front axle saturates.
+
+Longitudinal force is allocated *after* lateral: the drive/brake demand is clipped per axle by
+the **friction-ellipse remainder** `√((µF_z)² − F_y²)` — an idealized TC/ABS. Drive is
+rear-only and additionally capped by engine power `P/u`; brakes split `kBf` to the front axle.
+
+### Loads and aero
+
+Static axle loads from the weight split; downforce `F_down = ½ρ·C_lA·u²` divided by `aeroBal`
+front/rear (the Clubman carries C_lA = 0.5 m²; sliders let you give any car up to 5 m²). The
+two load-transfer states relax toward `ξ_F·m·a_y·h/t_f` (front share of the roll couple) and
+`m·a_x·h/L` with their respective time constants — so a snap of steering or brakes takes
+~0.15–0.2 s to fully load the outside/front tyres, exactly the transient that punishes
+"stab-the-pedal" inputs.
+
+### The driver: two channels, calibrated against real laps
+
+**Steering** is the Kapania–Gerdes lookahead law: a feedforward
+`(L + K_us·u²)·κ_line` evaluated a preview time ahead, **plus the OCP line's own optimal
+steer** passed through as a dynamic feedforward, minus lookahead-error feedback
+`K_LA·e_LA` with `e_LA = (n − n_ref) + x_LA·(Δψ − ψ_ref)` — the path error a distance
+`x_LA = 5 m + 0.25·u` ahead (capped at u = 38 m/s). The feedback gain rolls off above a
+speed knee (u ≈ 43 m/s) — quick hands don't work at 200 km/h, and without the rolloff the
+wheel saws on fast straights. A yaw-damping term `K_r·(r − κ·u)` and a `tanh` saturation at
+the 20° steering stop close the loop; the command then passes through the 0.10 s actuator.
+
+**Pedals** follow the reference speed with a ~1 s preview, but braking for a corner beyond
+the preview is an **onset trigger, not a plan**: the far horizon watches the kinematic
+deceleration needed for every point ~2 s ahead, and only when that need reaches ~0.4 µg does
+the driver commit — then brakes ~25 % *harder* than kinematically necessary, trailing off as
+the planned path curvature claims its share of the friction circle. This late-hard shape came
+straight from the logged laps (real braking p90 = 0.90 g; an earlier spread-out horizon
+never exceeded 0.6 g and gave laps 5 s too slow). Symmetrically, the throttle gets no more
+than the friction-circle remainder of the *worse* of planned curvature and measured `|r|·u` —
+no full power until the car is unwound, which is what keeps corner-exit power-on understeer
+from running the car wide. Where the steering gain has rolled off, the driver also carries a
+few percent of speed margin (slow hands need slack).
+
+### Speed reference and racing line
+
+The reference `v_ref(s)` is the classic quasi-steady profile on the racing line: corner-speed
+limit from the lateral budget (growing with downforce as `a_y,cap = a_yF·(1 + ρC_lA·v²/2mg)`),
+then a power/traction-limited forward pass and a braking-limited backward pass, both shaped
+by the friction ellipse.
+
+The **line itself** is a genuine minimum-time trajectory: per track, a 3-DOF min-time OCP
+(CasADi + IPOPT, direct collocation — details in the OCP section below) solved once for the
+calibrated Elise and baked into the page as `n_ref / ψ_ref / κ_line / δ_FF` tables. The
+corridor lets the line put the car's edge at the white line; a small speed-scaled driver
+margin (larger only on the Nordschleife's 200 km/h kinks) absorbs the lookahead driver's
+overshoot so the apexes land **on the kerbs**, not the grass — matching the logged laps,
+which run 20–25 m shorter than the centerline because real drivers cut over them.
+
+### Calibrated against real telemetry
+
+The headline presets are fitted to the owner's RaceChrono/VBOX logs (`tracks/racelogs.py`
+parses whole sessions and splits laps; the committed overlay traces are in
+`tracks/telemetry/`). Fit inputs: speed-vs-distance of the best real laps at Ring Knutstorp,
+lap time, sustained lateral g, and braking rate. Mass and power were **not** fitted — they
+are the known car specs; the fit adjusted tyre µ and the used lateral budget.
+
+| | real (logged) | simulated |
+|---|--:|--:|
+| Lotus Elise best lap, Knutstorp | **1:09.5** | 1:12.3 |
+| Mazda MX-5 best lap, Knutstorp | **1:08.0** | 1:11.4 |
+| sustained lateral (p99) | 1.62 / 1.67 g | ~1.5 g |
+| braking (p90) | 0.90 g | ~0.7 g |
+| top speed on track | 163 / 167 km/h | 169 / 173 km/h |
+| speed-trace error v(s), rms | — | 9.2 km/h |
+
+The remaining ~3 s sits in the line model, not the car: the sim's track has no kerbs to cut
+and its driver keeps a small tracking margin a professional would not. The five cars:
+
+| Preset | m | P | µ | provenance |
+|---|--:|--:|--:|---|
+| Lotus Elise | 862 kg | 88 kW | 1.80 | fitted to the owner's logged laps |
+| Mazda MX-5 "Oskar" | 980 kg | 104 kW | 1.82 | fitted to Oskar's logged lap 19 |
+| BMW M3 E36 (tourer) | 1650 kg | 150 kW | 0.95 | the original Modelica defaults |
+| BMW M140i | 1530 kg | 250 kW | 1.30 | spec-based; µ matches its logged 1.28 g |
+| Clubman Racer | 580 kg | 116 kW | 1.75 | Swedish Clubman class figures, slicks + wing |
+
+When you **drive yourself** (arrow keys / WASD / touch), the same plant runs with your
+steer and pedal inputs replacing the driver law — plus a soft-ground penalty (rolling drag
+up, grip trimmed) once you put wheels past the white line.
+
+## Modelica origin: the double-lane-change study
 
 `modelica/Tricycle.mo` (single-file Modelica package, simulated with OpenModelica):
 
