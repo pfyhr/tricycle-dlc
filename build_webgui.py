@@ -83,7 +83,7 @@ def build_track(key):
     # ~0.6 m on the grippier cars; cap the line a touch (more where fast) so the tyres stay on
     vLine, _ = speed_profile(s, kapLine, ds_seg=dsSeg, **cfg0['profile'])
     nRef, psiRef, kapLine, dsSeg = apply_driver_margin(x, y, psi, ds, nRef, wMax, vLine,
-                                                       margin=0.6, k=1.2)
+                                                       margin=0.6, k=2.6)
     dOcp = np.interp(s, np.append(sc, Lc), np.append(dOcp_c, dOcp_c[0]))
     uOcp = np.interp(s, np.append(sc, Lc), np.append(uOcp_c, uOcp_c[0]))
     deltaFF = np.clip(_gauss_periodic(dOcp - (d0['Lwb'] + d0['Kus']*uOcp**2)*kapLine, ds, 6.0),

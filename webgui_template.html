@@ -213,7 +213,7 @@ let T, curTrack;                 // current track table (switchable); set by bui
 const $=id=>document.getElementById(id);
 // ---- physics constants + fixed driver/profile calibration -----------------------
 const C={uMin:1,uPrevMin:5,tauSteer:0.10,tauRoll:0.15,tauPitch:0.20,TpV:1.0,TpFF:0.6,
-  xLA0:5.0,TLA:0.25,uLAcap:38,uKnee:40,uWid:14,dMax:0.35,g:9.80665};   // club-driver reflexes: quick hands, big preview
+  xLA0:5.0,TLA:0.25,uLAcap:38,uKnee:43,uWid:15,brkTrig:0.40,brkMul:1.25,dMax:0.35,g:9.80665};   // driver reflexes; brkTrig/brkMul = late-hard braking
 // uLAcap: cap the speed used for the lookahead distance (bounded preview). The path-feedback gain is held
 // full below uKnee (~150 km/h — every corner) and rolls off above it (width uWid) so the high-speed
 // straight-line steering limit cycle is damped without touching cornering tracking.
@@ -272,12 +272,26 @@ function deriv(y,P,vRef,ctrl){
     const xLA=C.xLA0+C.TLA*Math.min(up,C.uLAcap), eLA=(n-nRef)+xLA*(dp-psiRef);
     const gHi=1/(1+Math.pow(Math.max(0,up-C.uKnee)/C.uWid,2));   // full below uKnee; rolls off on fast straights
     dCmd=C.dMax*Math.tanh(((P.Lwb+P.Kus*u*u)*kapLine+deltaFF-gHi*KMUL*P.KLA*eLA-P.Kr*(r-kapNow*u))/C.dMax);
-    // longitudinal preview: follow the reference speed, but scan a braking horizon so the driver
-    // sheds speed early for a slow corner sitting beyond the fixed-time preview point. A single
-    // preview under-brakes into hairpins -> arrives hot -> understeers wide on exit.
+    // longitudinal: near preview tracks the reference speed; a far braking horizon watches for
+    // slow corners beyond it (a single preview under-brakes into hairpins -> understeers wide).
+    // The horizon is an ONSET TRIGGER, not a plan: braking only commits once the kinematic need
+    // approaches the friction budget, then brakes hard - late-hard braking as in the RaceLogs
+    // (real Elise braking p90 = 0.9 g; the old spread-out horizon braked at a soft 0.6 g max).
     axCmd=(vRefP*vRefP-u*u)/(2*dPrev);
+    let aFar=0;
     for(let d=8;d<=up*2.2+10;d+=6){const vq=interp(vRef,s+d);
-      if(vq<u){const a=(vq*vq-u*u)/(2*d); if(a<axCmd)axCmd=a;}}
+      if(vq<u){const a=(vq*vq-u*u)/(2*d); if(a<aFar)aFar=a;}}
+    // friction-circle share for the pedals. Brake: commit late-and-hard as in the RaceLogs,
+    // trailing off with the PLANNED path demand (kap) through turn-in; the commitment fades
+    // with gHi because the logs only cover <=165 km/h and hard braking with rolled-off
+    // steering authority half-spins the car. Throttle: no full power until the car unwinds -
+    // gated on the worse of planned demand and MEASURED |r|u (understeer keeps kap high,
+    // a slide keeps r high; either one holds the power off).
+    const latK=Math.min(1,Math.abs(kapNow)*u*u/(P.mu*C.g));
+    const latR=Math.min(1,Math.abs(r)*u/(P.mu*C.g)), latT=Math.max(latK,latR);
+    if(aFar<axCmd){
+      if(aFar<=-C.brkTrig*P.mu*C.g*gHi) axCmd=(1+(C.brkMul-1)*gHi)*aFar*Math.sqrt(1-latK*latK);
+    } else if(axCmd>0) axCmd*=Math.sqrt(1-latT*latT);
   }
   const aFL=delta-Math.atan((vy+P.a*r)/Math.max(u-r*P.tf/2,C.uMin));
   const aFR=delta-Math.atan((vy+P.a*r)/Math.max(u+r*P.tf/2,C.uMin));

@@ -18,8 +18,9 @@ STORE = os.path.join(HERE, 'telemetry')
 LOGDIR = os.path.expanduser('~/Downloads/RaceLogs')
 
 # (car, track) -> raw VBOX log used to build the committed trace
+# (see racelogs.py for the full-session survey these were picked from)
 SOURCES = {
-    ('elise', 'knutstorp'): 'session_knutstorp_20180922_1031.vbo',
+    ('elise', 'knutstorp'): 'session_pontus_kval_c_20180707_1114.vbo',   # best real lap, 1:09.5
     ('miata', 'knutstorp'): 'oskar_knutstorp_lap19_20180512_1039.vbo',
 }
 # first-block VBOX column indices: velocity(kmh), long, lat, time(hhmmss.ss)

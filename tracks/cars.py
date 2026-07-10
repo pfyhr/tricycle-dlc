@@ -66,7 +66,11 @@ CARS = {
 
     'elise': _car(
         'Lotus Elise (862 kg, 118 hp)',
-        m=862, Pmax=88e3, CdA=0.68, Crr=0.012, rho=1.20, mu=1.60, ayFrac=0.90,
+        # mu/ayFrac calibrated against the owner's RaceLogs (racelogs.py): best real
+        # Knutstorp lap 1:09.5 over 4 consistent sessions, sustained |ay| p99 = 1.62 g,
+        # vmax 163 km/h, braking p90 0.9 g. R-compound at light Elise wheel loads ->
+        # mu 1.80; ayFrac 0.96 puts the profile budget at what the plant realizes (1.5 g).
+        m=862, Pmax=88e3, CdA=0.68, Crr=0.012, rho=1.20, mu=1.80, ayFrac=0.96,
         hcg=0.46, a=1.43, b=0.87,          # L=2.30 m, mid-engine ~38% front
         Izz=1070, tf=1.46, xiF=0.50, kBf=0.62,
         # track tyres: high µ; nominal loads scaled to the Elise's axle loads
@@ -75,17 +79,19 @@ CARS = {
         FzNomF=1600, FzNomR=5250, ap0F=0.055, ap0R=0.075,
         Kus=1.0e-3,           # near-neutral mid-engine, mild understeer for stability
         KLA=0.30,             # higher lookahead gain: the grippier car wants tighter feedback
-        grip_frac=0.88),      # plant realizes ~1.40 g of the 1.60 nominal mu
+        grip_frac=0.88),      # plant realizes ~1.5 g of the 1.80 nominal mu
 
     'miata': _car(
         'Mazda MX-5 "Oskar" (980 kg, 140 hp)',
-        m=980, Pmax=104e3, CdA=0.66, Crr=0.012, rho=1.20, mu=1.68, ayFrac=0.90,
+        # calibrated against Oskar's real Knutstorp lap 19 (racelogs.py): 1:08.0,
+        # sustained |ay| p99 = 1.67 g, vmax 167 km/h - the fastest real lap on file.
+        m=980, Pmax=104e3, CdA=0.66, Crr=0.012, rho=1.20, mu=1.82, ayFrac=0.97,
         hcg=0.48, a=1.15, b=1.15,          # L=2.30 m, front-engine RWD ~50/50
         Izz=1300, tf=1.41, xiF=0.50, kBf=0.62,
-        # track tyres: realized ~1.5 g lateral; loads scaled to ~2400 N front / 4800 N rear
+        # track tyres: realized ~1.55 g lateral; loads scaled to ~2400 N front / 4800 N rear
         c1F=4.2e4, c1R=8.4e4, c2F=2400, c2R=4800,
         FzNomF=2400, FzNomR=4800, ap0F=0.055, ap0R=0.075,
-        Kus=1.2e-3, KLA=0.28, grip_frac=0.88),
+        Kus=1.2e-3, KLA=0.30, grip_frac=0.88),
 
     # Scandinavian Clubman sports-prototype: 1800 Ford Zetec ~155 hp, 580 kg race weight
     # (real Swedish class figures), slicks and a big rear wing -> one of the fastest
