@@ -58,7 +58,7 @@ input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;bac
 /* bottom-left: live telemetry */
 #tele{bottom:66px;left:14px;display:flex;gap:18px;align-items:flex-end}
 #speed{font-family:var(--mono);font-variant-numeric:tabular-nums;line-height:1}
-#speed .v{font-size:52px;font-weight:600}
+#speed .v{font-size:52px;font-weight:600;min-width:3ch}   /* reserve 3 digits: no layout shift under 100 */
 #speed .u{font-size:11px;color:var(--ink-dim);letter-spacing:1.5px;text-transform:uppercase}
 .rows{display:grid;grid-template-columns:auto auto;gap:2px 10px;
   font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums}
@@ -302,7 +302,11 @@ function deriv(y,P,vRef,ctrl){
     const latK=Math.min(1,Math.abs(kapNow)*u*u/(P.mu*C.g));
     const latR=Math.min(1,Math.abs(r)*u/(P.mu*C.g)), latT=Math.max(latK,latR);
     if(aFar<axCmd){
-      if(aFar<=-C.brkTrig*P.mu*C.g*gHi) axCmd=(1+(C.brkMul-1)*gHi)*aFar*Math.sqrt(1-latK*latK);
+      // smooth commit band (75-100% of the trigger): a hard threshold chatters as the need
+      // hovers near it - 0.13 s brake stabs in bursts; a real foot applies once and holds
+      const trig=C.brkTrig*P.mu*C.g*gHi, w0=Math.min(1,Math.max(0,(-aFar-0.75*trig)/(0.25*trig)));
+      const w=w0*w0*(3-2*w0);
+      if(w>0) axCmd=Math.min(axCmd, w*(1+(C.brkMul-1)*gHi)*aFar*Math.sqrt(1-latK*latK));
     } else if(axCmd>0) axCmd*=Math.sqrt(1-latT*latT);
   }
   const aFL=delta-Math.atan((vy+P.a*r)/Math.max(u-r*P.tf/2,C.uMin));
@@ -657,14 +661,15 @@ function drawMini(p){
 // ---- g-g dot (live) --------------------------------------------------------------
 const gg=$('ggc').getContext('2d'); const trail=[];
 function drawGGhud(p){
-  gg.clearRect(0,0,92,92);
+  gg.clearRect(0,0,92,92);                                 // rings at 1 g and 2 g (20 px per g)
+  gg.strokeStyle='rgba(255,255,255,.22)'; gg.beginPath();gg.arc(46,46,20,0,7);gg.stroke();
+  gg.strokeStyle='rgba(255,255,255,.13)'; gg.beginPath();gg.arc(46,46,40,0,7);gg.stroke();
   gg.strokeStyle='rgba(255,255,255,.16)';
-  gg.beginPath();gg.arc(46,46,40,0,7);gg.stroke(); gg.beginPath();gg.arc(46,46,20,0,7);gg.stroke();
   gg.beginPath();gg.moveTo(6,46);gg.lineTo(86,46);gg.moveTo(46,6);gg.lineTo(46,86);gg.stroke();
   trail.push([p.ay,p.ax]); if(trail.length>26)trail.shift();
   for(let i=0;i<trail.length;i++){const a=i/trail.length;
     gg.fillStyle=`rgba(232,193,90,${0.1+0.55*a})`;
-    gg.beginPath();gg.arc(46+trail[i][0]*40,46-trail[i][1]*40,i===trail.length-1?3.5:2,0,7);gg.fill();}
+    gg.beginPath();gg.arc(46+trail[i][0]*20,46-trail[i][1]*20,i===trail.length-1?3.5:2,0,7);gg.fill();}
 }
 // ---- steering wheel: MOMO Prototipo style, yellow top marker (rotates with steer) ----
 const swCv=$('steerc'), SW=76, swc=swCv.getContext('2d');
