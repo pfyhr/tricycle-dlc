@@ -93,6 +93,21 @@ CARS = {
         FzNomF=2400, FzNomR=4800, ap0F=0.055, ap0R=0.075,
         Kus=1.2e-3, KLA=0.30, grip_frac=0.88),
 
+    # BMW M140i: 340 hp straight-six, ~1530 kg with driver, sport street tyres.
+    # Spec-based; mu 1.30 matches the car's logged |ay| p99 = 1.28 g (Falkenberg VBO).
+    # NOTE the 2024 GRC Kinnekulle lap (0:57.6, racelogs.py) was NOT used to fit:
+    # its speed trace shows a corner at 163 km/h where our centerline has a 103 km/h
+    # bend - the track was rebuilt since our layout data; see falkenberg for a fit
+    # target once that track is added.
+    'm140': _car(
+        'BMW M140i (1530 kg, 340 hp)',
+        m=1530, Pmax=250e3, CdA=0.66, Crr=0.011, rho=1.20, mu=1.30, ayFrac=0.95,
+        hcg=0.52, a=1.29, b=1.40,           # L=2.69 m, front-engine RWD ~52/48
+        Izz=2600, tf=1.57, xiF=0.55, kBf=0.64,
+        c1F=8.0e4, c1R=1.5e5, c2F=3700, c2R=7300,
+        FzNomF=3700, FzNomR=7300, ap0F=0.06, ap0R=0.08,
+        Kus=1.5e-3, KLA=0.26, grip_frac=0.90),
+
     # Scandinavian Clubman sports-prototype: 1800 Ford Zetec ~155 hp, 580 kg race weight
     # (real Swedish class figures), slicks and a big rear wing -> one of the fastest
     # sportscar classes in Scandinavia. ~200 W/kg, twice the Elise, plus downforce.
