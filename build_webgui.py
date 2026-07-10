@@ -38,7 +38,7 @@ if os.path.exists(CACHE):
 
 # sim tracks (Knutstorp first = default); short tracks then the Nordschleife
 TLIST = ['knutstorp', 'anderstorp', 'gelleras', 'kinnekulle', 'nordschleife']
-CAR_HALF, EDGE = 0.9, 0.2
+CAR_HALF, EDGE = 0.9, 0.05
 cfg0 = build_config('elise', 'base')          # racing line solved for the Elise
 d0 = cfg0['driver']
 
@@ -59,7 +59,7 @@ def build_track(key):
     vMC, _ = speed_profile(s, kMC, ds_seg=dsMC, **cfg0['profile'])
     stride = max(int(round(10.0/ds)), int(np.ceil(len(s)/700)))
     sc, kc, vN = s[::stride], kap[::stride], vMC[::stride]
-    wOcp = np.clip(wMax - 0.5 - 1.6*(vN/vN.max())**2, 0.3, wMax)
+    wOcp = np.clip(wMax - 0.2 - 0.8*(vN/vN.max())**2, 0.3, wMax)
     o = _cache.get(key)                             # OCP inputs fixed per track; rm cache to re-solve
     if o is not None and 'n' in o:
         nOpt_c, dOcp_c, uOcp_c = o['n'], o['d'], o['u']
@@ -82,8 +82,12 @@ def build_track(key):
     # light driver margin: the JS lookahead driver overshoots the aggressive OCP line by up to
     # ~0.6 m on the grippier cars; cap the line a touch (more where fast) so the tyres stay on
     vLine, _ = speed_profile(s, kapLine, ds_seg=dsSeg, **cfg0['profile'])
+    # per-track driver margin: the short Swedish tracks are wide and slow enough that the
+    # driver's apex overshoot lands on the kerb; the Nordschleife is narrow with 200 km/h
+    # corners (where the steering-gain knee limits tracking) and needs more line in hand
+    mg, mk = (0.75, 3.4) if key == 'nordschleife' else (0.3, 2.6)
     nRef, psiRef, kapLine, dsSeg = apply_driver_margin(x, y, psi, ds, nRef, wMax, vLine,
-                                                       margin=0.6, k=2.6)
+                                                       margin=mg, k=mk)
     dOcp = np.interp(s, np.append(sc, Lc), np.append(dOcp_c, dOcp_c[0]))
     uOcp = np.interp(s, np.append(sc, Lc), np.append(uOcp_c, uOcp_c[0]))
     deltaFF = np.clip(_gauss_periodic(dOcp - (d0['Lwb'] + d0['Kus']*uOcp**2)*kapLine, ds, 6.0),
