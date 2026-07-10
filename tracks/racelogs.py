@@ -26,8 +26,8 @@ def read_vbo(path):
     time from block 2 (index 15), same layout telemetry.py relies on.
     """
     import re
-    gate, rows, itime = None, [], None
-    tpat = re.compile(r'^\d{5,6}\.\d{1,2}$')                 # hhmmss.cc wall-clock field
+    gate, rows, cols = None, [], None
+    tpat = re.compile(r'^\d{5,6}\.\d{1,3}$')                 # hhmmss.cc wall-clock field
     with open(path, errors='replace') as f:
         indata = False
         for ln in f:
@@ -39,18 +39,19 @@ def read_vbo(path):
                 continue
             if indata:
                 p = ln.split()
-                if len(p) < 10:
+                if len(p) < 9:
                     continue
-                if itime is None:                             # layouts differ between logger
-                    for k in range(8, len(p)):                # versions: find the time column
-                        if tpat.match(p[k]):
-                            itime = k
-                            break
-                    if itime is None:
+                if cols is None:                              # layouts differ between logger
+                    it = next((k for k in range(1, len(p)) if tpat.match(p[k])), None)
+                    if it is None:
                         continue
+                    # standard VBOX order (RaceChrono v7+): sat time lat lon v hdg alt ax ay
+                    # old two-block export: sat lat lon v hdg alt ax ay ... sat time ...
+                    cols = ((it, it+1, it+2, it+3, it+6, it+7) if it == 1 else
+                            (it, 1, 2, 3, 6, 7))              # (t, lat, lon, v, ax, ay)
                 try:
-                    rows.append((float(p[itime]), float(p[2]), float(p[1]),
-                                 float(p[3]), float(p[6]), float(p[7])))
+                    rows.append((float(p[cols[0]]), float(p[cols[2]]), float(p[cols[1]]),
+                                 float(p[cols[3]]), float(p[cols[4]]), float(p[cols[5]])))
                 except (ValueError, IndexError):
                     pass
     if not rows:
