@@ -3,7 +3,7 @@
 <title>Tricycle — live planar lap simulator</title>
 <style>
 :root{
-  --ground:#151a16; --asphalt:#3b3e44; --edge:#b9b4a6; --kerb:#a8473c;
+  --ground:#151a16; --asphalt:#3b3e44; --edge:#b9b4a6; --kerb:#b04a3e;
   --panel:rgba(12,14,16,.80); --panel-line:rgba(255,255,255,.08);
   --ink:#e8e6df; --ink-dim:#9a9891; --accent:#e8c15a;
   --good:#7dbf7f; --bad:#d06355; --track:rgba(255,255,255,.10);
@@ -202,7 +202,7 @@ body.driving.touched #drivehint{display:none}   /* hide the prompt once the play
   <input id="scrub" type="range" min="0" max="1000" value="0">
   <span class="spd clock"><span id="ptime">0:00.0</span> / <span id="ltot">0:00.0</span></span>
   <span class="spd">speed <select id="pspeed"><option>0.5</option><option selected>1</option><option>2</option><option>4</option></select>×</span>
-  <span class="spd" id="zoomctl">zoom <input class="z" id="zoom" type="range" min="60" max="240" value="120"></span>
+  <span class="spd" id="zoomctl">zoom <input class="z" id="zoom" type="range" min="60" max="252" value="228"></span>
   <button id="chartsBtn">charts</button>
 </div>
 <div id="drivehint"></div>
@@ -227,6 +227,18 @@ function interp(ys,xq){ // T.s is the shared monotone knot vector (0..L, N+1 pts
   if(x<=xs[0])return ys[0]; if(x>=xs[hi])return ys[hi];
   while(hi-lo>1){const m=(lo+hi)>>1; if(xs[m]<=x)lo=m; else hi=m;}
   const t=(x-xs[lo])/(xs[hi]-xs[lo]); return ys[lo]+t*(ys[hi]-ys[lo]);
+}
+// C1 (Catmull-Rom) variant for POSE reconstruction only (x, y, psiU when drawing cars).
+// Linear interp keeps positions continuous but the direction of travel jumps ~ds/R at
+// every knot (~8 Hz at speed) - the ghost visibly stutters along its polyline. Cubic
+// makes the drawn path direction-continuous. Physics lookups stay linear (unchanged laps).
+function interpS(ys,xq){
+  const xs=T.s, n=xs.length; let x=((xq%T.L)+T.L)%T.L; let lo=0,hi=n-1;
+  if(x<=xs[0])return ys[0]; if(x>=xs[hi])return ys[hi];
+  while(hi-lo>1){const m=(lo+hi)>>1; if(xs[m]<=x)lo=m; else hi=m;}
+  const t=(x-xs[lo])/(xs[hi]-xs[lo]);
+  const p1=ys[lo], p2=ys[lo+1], p0=ys[lo>0?lo-1:lo], p3=ys[lo+2<n?lo+2:lo+1];
+  return 0.5*((2*p1)+(-p0+p2)*t+(2*p0-5*p1+4*p2-p3)*t*t+(-p0+3*p1-3*p2+p3)*t*t*t);
 }
 const smin=(x,y,e)=>0.5*(x+y-Math.sqrt((x-y)*(x-y)+e*e));
 const smax=(x,y,e)=>0.5*(x+y+Math.sqrt((x-y)*(x-y)+e*e));
@@ -331,7 +343,7 @@ function simulate(P){
   const o={s:[],v:[],x:[],y:[],h:[],del:[],beta:[],ax:[],ay:[],yaw:[],vref:[]};
   let t=0,peak=0,vmax=0,st=0;
   while(y[0]<T.L && st<120000){
-    const s=y[0], xc=interp(T.x,s),yc=interp(T.y,s),pc=interp(T.psiU,s);
+    const s=y[0], xc=interpS(T.x,s),yc=interpS(T.y,s),pc=interpS(T.psiU,s);   // C1 pose for the recording
     o.s.push(s);o.v.push(y[3]*3.6);o.x.push(xc-y[1]*Math.sin(pc));o.y.push(yc+y[1]*Math.cos(pc));
     o.h.push(pc+y[2]);o.del.push(y[6]);o.beta.push(Math.atan2(y[4],Math.max(y[3],1)));
     o.yaw.push(y[5]*180/Math.PI);o.vref.push(interp(vRef,s)*3.6);
@@ -344,7 +356,7 @@ function simulate(P){
 }
 // ---- world chase camera ---------------------------------------------------------
 const cv=$('world'), ctx=cv.getContext('2d');
-let W,H,dpr=Math.min(devicePixelRatio||1,2), viewH=120;
+let W,H,dpr=Math.min(devicePixelRatio||1,2), viewH=72;   // matches the zoom slider's default (300-228)
 function resize(){W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;}
 addEventListener('resize',resize); resize();
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
@@ -356,8 +368,11 @@ function buildGeom(name){
   TX=T.x;TY=T.y;TK=T.kap_c;NP=T.n;
   road=new Path2D(); road.moveTo(TX[0],TY[0]);
   for(let i=1;i<=NP;i++)road.lineTo(TX[i%NP],TY[i%NP]); road.closePath();
-  kerbs=new Path2D();
-  for(let i=0;i<NP;i++){ if(Math.abs(TK[i])>0.010){const j=(i+1)%NP;kerbs.moveTo(TX[i],TY[i]);kerbs.lineTo(TX[j],TY[j]);} }
+  kerbs=new Path2D();                       // contiguous runs so the stripe dashes flow along the kerb
+  let inRun=false;
+  for(let i=0;i<=NP;i++){ const ii=i%NP;
+    if(Math.abs(TK[ii])>0.010){ if(!inRun){kerbs.moveTo(TX[ii],TY[ii]);inRun=true;} else kerbs.lineTo(TX[ii],TY[ii]); }
+    else inRun=false; }
   let xmin=1/0,xmax=-1/0,ymin=1/0,ymax=-1/0;
   for(let i=0;i<NP;i++){ if(TX[i]<xmin)xmin=TX[i]; if(TX[i]>xmax)xmax=TX[i];
     if(TY[i]<ymin)ymin=TY[i]; if(TY[i]>ymax)ymax=TY[i]; }
@@ -370,15 +385,25 @@ function buildGeom(name){
 }
 function vcol(f){f=Math.max(0,Math.min(1,f));const r=Math.round(255*Math.min(1,Math.max(0,1.7*f-0.55)));
   const g=Math.round(255*Math.min(1,0.35+0.75*f));const b=Math.round(255*Math.max(0,0.75-1.2*f));return`rgb(${r},${g},${b})`;}
+// damped chase camera: the view heading low-passes the car heading, so steering
+// micro-corrections (especially sawing keyboard input) don't rotate the whole world.
+// A rigid camera makes everything but the screen-locked player car tremble - most
+// visibly the ghost, whose wobble is the heading jitter times its distance.
+let camH=null;
+const wrapA=a=>{while(a>Math.PI)a-=2*Math.PI;while(a<-Math.PI)a+=2*Math.PI;return a;};
 function drawWorld(p){
+  if(camH===null||Math.abs(wrapA(p.h-camH))>0.7)camH=p.h;   // snap on scrub/track jumps
+  else camH+=wrapA(p.h-camH)*0.22;                          // ~10 Hz low-pass at 60 fps
   ctx.setTransform(dpr,0,0,dpr,0,0);
   ctx.fillStyle=css('--ground'); ctx.fillRect(0,0,W,H);
-  const k=H/viewH, cx=W/2, cy=H*0.62, cs=Math.cos(p.h), sn=Math.sin(p.h);
+  const k=H/viewH, cx=W/2, cy=H*0.62, cs=Math.cos(camH), sn=Math.sin(camH);
   // world -> screen: heading points up (canvas y down)
   ctx.setTransform(k*sn*dpr,-k*cs*dpr,-k*cs*dpr,-k*sn*dpr,
                    dpr*(cx-k*(sn*p.x-cs*p.y)), dpr*(cy+k*(cs*p.x+sn*p.y)));
   ctx.lineJoin='round';ctx.lineCap='butt';
-  ctx.strokeStyle=css('--kerb'); ctx.lineWidth=ROADW+2.0; ctx.stroke(kerbs);
+  ctx.strokeStyle=css('--kerb'); ctx.lineWidth=ROADW+2.4; ctx.stroke(kerbs);      // red base...
+  ctx.strokeStyle='rgba(232,230,223,.85)'; ctx.setLineDash([2.2,2.2]);            // ...white stripes
+  ctx.stroke(kerbs); ctx.setLineDash([]);
   ctx.strokeStyle=css('--edge'); ctx.lineWidth=ROADW+0.8; ctx.stroke(road);
   ctx.strokeStyle=css('--asphalt'); ctx.lineWidth=ROADW; ctx.stroke(road);
   ctx.strokeStyle='rgba(255,255,255,.26)'; ctx.lineWidth=0.16;
@@ -423,7 +448,7 @@ function drawJoystick(){                       // the on-screen virtual stick (t
 }
 // when the baseline ghost is off the chase cam, point an edge arrow at it with the gap in metres
 function drawGhostIndicator(p){
-  const k=H/viewH, cx=W/2, cy=H*0.62, cs=Math.cos(p.h), sn=Math.sin(p.h);
+  const k=H/viewH, cx=W/2, cy=H*0.62, cs=Math.cos(camH), sn=Math.sin(camH);   // same damped basis as the camera
   const dx=ghostP.x-p.x, dy=ghostP.y-p.y;
   const gx=cx+k*(sn*dx-cs*dy), gy=cy-k*(cs*dx+sn*dy);   // ghost in screen space (CSS px)
   const m=34;
@@ -787,7 +812,7 @@ function stepLive(dtsim){                   // integrate the plant by wall time 
   LY.pkAy=Math.max(LY.pkAy,Math.abs(LY.ay)); LY.vmx=Math.max(LY.vmx,y[3]*3.6);
 }
 function renderLive(){
-  const y=LY.y, s=y[0], xc=interp(T.x,s),yc=interp(T.y,s),pc=interp(T.psiU,s);
+  const y=LY.y, s=y[0], xc=interpS(T.x,s),yc=interpS(T.y,s),pc=interpS(T.psiU,s);   // C1 pose (matches the recording)
   const p={x:xc-y[1]*Math.sin(pc), y:yc+y[1]*Math.cos(pc), h:pc+y[2], v:y[3]*3.6,
     vref:interp(LvRef,s)*3.6, ax:LY.ax, ay:LY.ay, yaw:y[5]*180/Math.PI,
     del:y[6], beta:Math.atan2(y[4],Math.max(y[3],1)), s, t:LY.t};
