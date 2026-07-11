@@ -91,9 +91,10 @@ def build_track(key):
     # per-track driver margin: the short Swedish tracks are wide and slow enough that the
     # driver's apex overshoot lands on the kerb; the Nordschleife is narrow with 200 km/h
     # corners (where the steering-gain knee limits tracking) and needs more line in hand
-    mg, mk = (0.4, 3.4) if key == 'nordschleife' else (0.2, 2.6)
+    mg, mk, sm = ((0.4, 3.4, 8.0) if key == 'nordschleife' else (0.2, 1.4, 4.0))
     nRef, psiRef, kapLine, dsSeg = apply_driver_margin(x, y, psi, ds, nRef, wMax, vLine,
-                                                       margin=mg, k=mk, ay_budget=ayb)
+                                                       margin=mg, k=mk, ay_budget=ayb,
+                                                       smooth=sm)
     dOcp = np.interp(s, np.append(sc, Lc), np.append(dOcp_c, dOcp_c[0]))
     uOcp = np.interp(s, np.append(sc, Lc), np.append(uOcp_c, uOcp_c[0]))
     deltaFF = np.clip(_gauss_periodic(dOcp - (d0['Lwb'] + d0['Kus']*uOcp**2)*kapLine, ds, 6.0),
