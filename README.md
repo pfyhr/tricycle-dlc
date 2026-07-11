@@ -139,8 +139,8 @@ are the known car specs; the fit adjusted tyre µ and the used lateral budget.
 
 | | real (logged) | simulated |
 |---|--:|--:|
-| Lotus Elise best lap, Knutstorp | **1:09.5** | 1:12.3 |
-| Mazda MX-5 best lap, Knutstorp | **1:08.0** | 1:11.4 |
+| Lotus Elise best lap, Knutstorp | **1:09.5** | 1:12.4 |
+| Mazda MX-5 best lap, Knutstorp | **1:08.0** | 1:11.5 |
 | sustained lateral (p99) | 1.62 / 1.67 g | ~1.5 g |
 | braking (p90) | 0.90 g | ~0.7 g |
 | top speed on track | 163 / 167 km/h | 169 / 173 km/h |

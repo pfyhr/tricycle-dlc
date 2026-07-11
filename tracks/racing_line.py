@@ -77,16 +77,28 @@ def min_curvature_line(x, y, psi, kappa_c, ds, w_max, alpha=5e-6, smooth=3.0):
     return w, dpsi_ref, kappa_line, ds_seg
 
 
-def apply_driver_margin(x, y, psi, ds, w, w_max, vRef, margin=0.4, k=1.4):
-    """Pull a racing line in from the corridor edge where the car is fast.
+def apply_driver_margin(x, y, psi, ds, w, w_max, vRef, margin=0.4, k=1.4,
+                        ay_budget=None):
+    """Pull a racing line in from the corridor edge where the driver needs slack.
 
-    The geometric minimum-curvature line has no speed awareness and uses the full
-    corridor even through fast corners - but the preview driver overshoots it by ~1 m
-    at 160+ km/h and would run off a narrow track. Inset the line by a speed-dependent
-    margin (grip-limited run-wide grows ~v^2, same law as the OCP corridor), so the
-    tracking overshoot stays on asphalt. Returns the reshaped (w, dpsi_ref, kappa_line,
+    The preview driver overshoots the line under LATERAL LOAD - through corners,
+    worst when fast - but tracks a straight essentially exactly, so margin taken on
+    straights (e.g. the flat-out run to a turn-in point) is pure width wasted. With
+    ay_budget the inset scales with the line's own lateral demand |kappa|*v^2 /
+    ay_budget, smoothed ~15 m so it eases in around turn-in; without it, the legacy
+    speed-only (v/vmax)^2 scaling. Returns the reshaped (w, dpsi_ref, kappa_line,
     ds_seg) from the exact offset geometry of the inset line."""
-    wCap = np.clip(w_max - margin - k*(vRef/vRef.max())**2, 0.3, w_max)
+    if ay_budget is not None:
+        # overshoot needs speed AND load: every grip-limited corner rides the full
+        # lateral budget, so the load term alone saturates in slow hairpins too -
+        # gate it by speed (full above ~137 km/h) so slow corners keep their width
+        _, kap0, _ = offset_geometry(x, y, psi, ds, w)
+        dem = (np.clip(np.abs(kap0)*vRef*vRef/ay_budget, 0.0, 1.0)
+               * np.clip((vRef/38.0)**2, 0.0, 1.0))
+        dem = _gauss_periodic(dem, ds, 15.0)
+        wCap = np.clip(w_max - margin - k*dem, 0.3, w_max)
+    else:
+        wCap = np.clip(w_max - margin - k*(vRef/vRef.max())**2, 0.3, w_max)
     w = _gauss_periodic(np.clip(w, -wCap, wCap), ds, 8.0)
     dpsi_ref, kappa_line, ds_seg = offset_geometry(x, y, psi, ds, w)
     return w, dpsi_ref, kappa_line, ds_seg

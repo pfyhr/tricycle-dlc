@@ -59,7 +59,13 @@ def build_track(key):
     vMC, _ = speed_profile(s, kMC, ds_seg=dsMC, **cfg0['profile'])
     stride = max(int(round(10.0/ds)), int(np.ceil(len(s)/700)))
     sc, kc, vN = s[::stride], kap[::stride], vMC[::stride]
-    wOcp = np.clip(wMax - 0.2 - 0.8*(vN/vN.max())**2, 0.3, wMax)
+    # corridor narrows with LATERAL DEMAND, not speed: a flat-out straight (kappa~0) keeps
+    # full width - entry positioning before a turn-in point should hug the edge - while
+    # fast kinks (where the driver's overshoot lives) stay pulled in
+    ayb = 0.9*cfg0['profile']['ayFrac']*cfg0['profile']['mu']*9.80665
+    demN = (np.clip(np.abs(kc)*vN**2/ayb, 0.0, 1.0)     # loaded...
+            * np.clip((vN/38.0)**2, 0.0, 1.0))          # ...AND fast (slow corners keep width)
+    wOcp = np.clip(wMax - 0.2 - 0.8*demN, 0.3, wMax)
     o = _cache.get(key)                             # OCP inputs fixed per track; rm cache to re-solve
     if o is not None and 'n' in o:
         nOpt_c, dOcp_c, uOcp_c = o['n'], o['d'], o['u']
@@ -85,9 +91,9 @@ def build_track(key):
     # per-track driver margin: the short Swedish tracks are wide and slow enough that the
     # driver's apex overshoot lands on the kerb; the Nordschleife is narrow with 200 km/h
     # corners (where the steering-gain knee limits tracking) and needs more line in hand
-    mg, mk = (0.75, 3.4) if key == 'nordschleife' else (0.3, 2.6)
+    mg, mk = (0.4, 3.4) if key == 'nordschleife' else (0.2, 2.6)
     nRef, psiRef, kapLine, dsSeg = apply_driver_margin(x, y, psi, ds, nRef, wMax, vLine,
-                                                       margin=mg, k=mk)
+                                                       margin=mg, k=mk, ay_budget=ayb)
     dOcp = np.interp(s, np.append(sc, Lc), np.append(dOcp_c, dOcp_c[0]))
     uOcp = np.interp(s, np.append(sc, Lc), np.append(uOcp_c, uOcp_c[0]))
     deltaFF = np.clip(_gauss_periodic(dOcp - (d0['Lwb'] + d0['Kus']*uOcp**2)*kapLine, ds, 6.0),
