@@ -139,14 +139,14 @@ are the known car specs; the fit adjusted tyre µ and the used lateral budget.
 
 | | real (logged) | simulated |
 |---|--:|--:|
-| Lotus Elise best lap, Knutstorp | **1:09.5** | 1:10.4 |
-| Mazda MX-5 best lap, Knutstorp | **1:08.0** | 1:09.5 |
+| Lotus Elise best lap, Knutstorp | **1:09.5** | 1:10.1 |
+| Mazda MX-5 best lap, Knutstorp | **1:08.0** | 1:09.1 |
 | sustained lateral (p99) | 1.62 / 1.67 g | ~1.5 g |
 | braking (p90) | 0.90 g | ~0.7 g |
 | top speed on track | 163 / 167 km/h | 169 / 173 km/h |
 | speed-trace error v(s), rms | — | 9.2 km/h |
 
-The remaining ~1 s sits in the line model, not the car: the sim's track has no kerbs to cut
+The remaining ~0.5-1 s sits in the line model, not the car: the sim's track has no kerbs to cut
 and its driver keeps a small tracking margin a professional would not. The five cars:
 
 | Preset | m | P | µ | provenance |

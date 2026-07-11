@@ -93,10 +93,22 @@ def build_track(key):
     # driver's apex overshoot lands on the kerb; the Nordschleife is narrow with 200 km/h
     # corners (where the steering-gain knee limits tracking) and needs more line in hand
     mg, mk, sm, asym = ((0.4, 3.4, 8.0, False) if key == 'nordschleife'
-                        else (0.25, 1.4, 4.0, True))   # apex-side freedom only where validated
-    nRef, psiRef, kapLine, dsSeg = apply_driver_margin(x, y, psi, ds, nRef, wMax, vLine,
-                                                       margin=mg, k=mk, ay_budget=ayb,
-                                                       smooth=sm, asym=asym)
+                        else (0.25, 1.4, 4.0, True))
+    bite = {'nordschleife': 0.0, 'kinnekulle': 0.15}.get(key, 0.75)   # kinnekulle's fast exits
+    # are the overshoot hotspot - it takes less aim bias (and its layout data is outdated)
+    # steer at the BITTEN line, pace on the UNBITTEN one: the saturated driver undershoots a
+    # deep apex by ~0.5 m no matter what (measured), so the aim point is biased past the apex
+    # (nRef/psiRef) while speed and steer-feedforward (kapLine/dsSeg/deltaFF) come from the
+    # line the car actually ends up driving - aiming deep must not slow the reference.
+    nRef0, psiRef0, kapLine, dsSeg = apply_driver_margin(x, y, psi, ds, nRef, wMax, vLine,
+                                                         margin=mg, k=mk, ay_budget=ayb,
+                                                         smooth=sm, asym=asym, bite=0.0)
+    if bite:
+        nRef, psiRef, _, _ = apply_driver_margin(x, y, psi, ds, nRef, wMax, vLine,
+                                                 margin=mg, k=mk, ay_budget=ayb,
+                                                 smooth=sm, asym=asym, bite=bite)
+    else:
+        nRef, psiRef = nRef0, psiRef0
     dOcp = np.interp(s, np.append(sc, Lc), np.append(dOcp_c, dOcp_c[0]))
     uOcp = np.interp(s, np.append(sc, Lc), np.append(uOcp_c, uOcp_c[0]))
     deltaFF = np.clip(_gauss_periodic(dOcp - (d0['Lwb'] + d0['Kus']*uOcp**2)*kapLine, ds, 6.0),

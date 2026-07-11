@@ -78,7 +78,7 @@ def min_curvature_line(x, y, psi, kappa_c, ds, w_max, alpha=5e-6, smooth=3.0):
 
 
 def apply_driver_margin(x, y, psi, ds, w, w_max, vRef, margin=0.4, k=1.4,
-                        ay_budget=None, smooth=4.0, asym=True):
+                        ay_budget=None, smooth=4.0, asym=True, bite=0.0):
     """Pull a racing line in from the corridor edge where the driver needs slack.
 
     The preview driver overshoots the line under LATERAL LOAD - through corners,
@@ -105,7 +105,16 @@ def apply_driver_margin(x, y, psi, ds, w, w_max, vRef, margin=0.4, k=1.4,
             wIn = w_max - margin
             hi = wCap + (wIn - wCap)*np.maximum(aX, 0.0)     # +n bound: apex side of a LEFT
             lo = -(wCap + (wIn - wCap)*np.maximum(-aX, 0.0)) # -n bound: apex side of a RIGHT
-            w = _gauss_periodic(np.clip(w, lo, hi), ds, smooth)
+            w = np.clip(w, lo, hi)
+            if bite:
+                # aim past the apex to hit it: the saturated driver converges onto a deep
+                # apex ~0.5 m short no matter the gains (measured; feedback is tanh-limited
+                # at the grip limit) - so bias the REFERENCE deeper at the dip bottoms by
+                # the known undershoot, and the driven car lands on the kerb
+                apx = (np.maximum(aX, 0.0)*np.clip((w - 0.6*wIn)/(0.4*wIn), 0, 1)
+                       - np.maximum(-aX, 0.0)*np.clip((-w - 0.6*wIn)/(0.4*wIn), 0, 1))
+                w = w + bite*apx
+            w = _gauss_periodic(w, ds, smooth)
         else:
             w = _gauss_periodic(np.clip(w, -wCap, wCap), ds, smooth)
     else:
