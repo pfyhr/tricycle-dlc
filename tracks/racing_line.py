@@ -78,7 +78,7 @@ def min_curvature_line(x, y, psi, kappa_c, ds, w_max, alpha=5e-6, smooth=3.0):
 
 
 def apply_driver_margin(x, y, psi, ds, w, w_max, vRef, margin=0.4, k=1.4,
-                        ay_budget=None, smooth=4.0):
+                        ay_budget=None, smooth=4.0, asym=True):
     """Pull a racing line in from the corridor edge where the driver needs slack.
 
     The preview driver overshoots the line under LATERAL LOAD - through corners,
@@ -97,11 +97,20 @@ def apply_driver_margin(x, y, psi, ds, w, w_max, vRef, margin=0.4, k=1.4,
                * np.clip((vRef/38.0)**2, 0.0, 1.0))
         dem = _gauss_periodic(dem, ds, 15.0)
         wCap = np.clip(w_max - margin - k*dem, 0.3, w_max)
+        # DIRECTION-AWARE: overshoot only ever pushes the car OUTWARD - it cannot
+        # overshoot into an apex (it arrives wide, never deep). Margin therefore
+        # belongs on the outside of a corner only; the apex side keeps full width.
+        if asym:
+            aX = _gauss_periodic(np.clip(kap0/0.004, -1.0, 1.0), ds, 8.0)
+            wIn = w_max - margin
+            hi = wCap + (wIn - wCap)*np.maximum(aX, 0.0)     # +n bound: apex side of a LEFT
+            lo = -(wCap + (wIn - wCap)*np.maximum(-aX, 0.0)) # -n bound: apex side of a RIGHT
+            w = _gauss_periodic(np.clip(w, lo, hi), ds, smooth)
+        else:
+            w = _gauss_periodic(np.clip(w, -wCap, wCap), ds, smooth)
     else:
         wCap = np.clip(w_max - margin - k*(vRef/vRef.max())**2, 0.3, w_max)
-    # post-clip smoothing: light (4 m) preserves narrow (~25 m) apex dips on tight tracks;
-    # heavier keeps fast flowing lines calm (per-track choice)
-    w = _gauss_periodic(np.clip(w, -wCap, wCap), ds, smooth)
+        w = _gauss_periodic(np.clip(w, -wCap, wCap), ds, smooth)
     dpsi_ref, kappa_line, ds_seg = offset_geometry(x, y, psi, ds, w)
     return w, dpsi_ref, kappa_line, ds_seg
 
