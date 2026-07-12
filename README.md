@@ -224,18 +224,20 @@ This is a genuine racing line — wide entry, apex, track-out — but the
 minimum-curvature line for a fixed corridor, *not* a provably minimum-time trajectory
 (see "How optimal is it?" below).
 
-Lap times for the default setup (150 kW / 1650 kg / μ = 0.95), racing line vs.
-centerline following:
+Lap times for the telemetry-calibrated Elise (862 kg / 88 kW / µ = 1.80,
+`--car=elise`), racing line vs. centerline following:
 
 | Track (`--track=`) | Length | Racing line | Centerline | v_max |
 |---|--:|--:|--:|--:|
-| `nordschleife` — Nürburgring Nordschleife | 20.72 km | **10:39.9** | 11:04.0 | 230 km/h |
-| `anderstorp` — Anderstorp Raceway | 4.01 km | **2:15.1** | 2:20.8 | 178 km/h |
-| `gelleras` — Gelleråsen Arena (Karlskoga) | 2.33 km | **1:35.8** | 1:40.4 | 160 km/h |
-| `knutstorp` — Ring Knutstorp | 2.06 km | **1:29.2** | 1:33.4 | 160 km/h |
-| `kinnekulle` — Kinnekulle Ring | 2.06 km | **1:15.1** | 1:19.2 | 164 km/h |
+| `nordschleife` — Nürburgring Nordschleife | 20.72 km | **8:48.4** | 9:20.7 | 202 km/h |
+| `anderstorp` — Anderstorp Raceway | 4.01 km | **1:54.9** | 1:59.9 | 189 km/h |
+| `gelleras` — Gelleråsen Arena (Karlskoga) | 2.33 km | **1:17.6** | 1:23.5 | 173 km/h |
+| `knutstorp` — Ring Knutstorp | 2.06 km | **1:11.5** | 1:17.1 | 169 km/h |
+| `kinnekulle` — Kinnekulle Ring | 2.06 km | **1:02.1** | 1:05.6 | 170 km/h |
 
-The racing line is 3.5–5 % quicker, and the car tracks it to within ~0.8 m rms.
+The racing line is 4–7 % quicker, and the car tracks it to within ~1.2 m rms.
+(These are the geometric min-curvature lines; the live simulator runs the OCP
+min-time lines below, which is why its Knutstorp lap is a second faster still.)
 
 ![Nordschleife racing line colored by speed](outputs/svg/tourer_ns_map.svg)
 
@@ -302,15 +304,18 @@ Result — driven laps (full model tracking each line), `T_opt` = the 3-DOF opti
 
 | Track | Min-curvature | OCP-tracked | Δ | `T_opt` (3-DOF) |
 |---|--:|--:|--:|--:|
-| Knutstorp | 1:29.2 | **1:25.3** | −3.9 s | 1:18.9 |
-| Gelleråsen | 1:35.8 | **1:31.4** | −4.4 s | 1:24.7 |
-| Anderstorp | 2:15.1 | **2:11.5** | −3.6 s | 2:05.4 |
-| Kinnekulle | 1:15.1 | 1:16.1 | +1.0 s | 1:09.3 |
-| Nordschleife | 10:39.9 | 10:39.8 | ≈ tie | 9:04.9 |
+| Knutstorp | 1:11.5 | **1:11.0** | −0.5 s | 1:04.9 |
+| Gelleråsen | 1:17.6 | **1:17.0** | −0.6 s | 1:10.6 |
+| Anderstorp | 1:54.9 | **1:52.8** | −2.1 s | 1:46.4 |
+| Kinnekulle | 1:02.1 | **1:00.9** | −1.2 s | 0:56.8 |
+| Nordschleife | 8:48.4 | 9:00.7 | +12.3 s | 8:01.3 |
 
-The OCP line is 3–4 s quicker on the technical circuits (Knutstorp, Gelleråsen,
-Anderstorp) and about even on the fast, flowing ones (Kinnekulle, Nordschleife), tracked
-to ~0.7–1.0 m rms.
+(Elise, same setup as the table above.) The OCP line wins on every circuit except the
+Nordschleife, where the aggressive min-time line through the 200 km/h sections outruns
+what the driver can track through `track_lap`'s plain corridor — the live simulator
+solves exactly this with per-track, lateral-demand-scaled driver margins, which is why
+its Nordschleife laps use the OCP line and still stay on the kerbs. Tracked to
+~1.0–1.3 m rms.
 
 The OCP needs CasADi (`pip install casadi`, bundles IPOPT); `--line=optimal`
 (min-curvature) remains the dependency-free default.
