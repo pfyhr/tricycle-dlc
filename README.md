@@ -38,8 +38,9 @@ self-contained `outputs/index.html`, published to GitHub Pages on every push to 
 ## The vehicle model (what actually runs in your browser)
 
 Everything below lives in `webgui_template.html` as ~120 lines of physics — a faithful port
-of the Modelica `Track.TrackTricycle` plant (see the next section for its origin), integrated
-with fixed-step **RK4 at dt = 6 ms**. A full lap is ~12 000 steps and solves in a few
+of the Modelica `Track.TrackTricycle` plant (**[validated below](#is-the-port-faithful)**;
+see the [Modelica origin chapter](#modelica-origin-the-double-lane-change-study) for its
+heritage), integrated with fixed-step **RK4 at dt = 6 ms**. A full lap is ~12 000 steps and solves in a few
 milliseconds, which is what makes live re-tuning and real-time driving free.
 
 ### Plant: 9 states, three wheels
@@ -180,6 +181,16 @@ shown to agree in the first place).
 Lap time **70.0 s vs 70.0 s (Δ0.1 s)**; over the full lap the speed traces agree to
 **0.3 km/h rms**, the road-wheel steer to **0.39° rms**, and the driven line to
 **0.05 m rms** — the two curves are indistinguishable at plot scale.
+
+And the origin story closes its loop: both plants driving the **ISO 3888-1 double lane
+change** the project began with — same Elise, same driver law, the JavaScript car drawn as
+a translucent ghost over the Modelica one (`port_dlc.py`):
+
+![Both plants, same double lane change, JS as ghost](outputs/gif/port_dlc.gif)
+
+The two cars move as one — peak CG separation over the whole maneuver is **3 mm**:
+
+![CG trajectory, both plants](outputs/svg/port_dlc_traj.svg)
 
 The third trace is the **real lap** (69.5 s): the logged GPS is rigidly fitted onto the
 track frame (the driven lap *is* the track, so three closest-point Procrustes rounds
