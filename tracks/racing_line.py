@@ -78,7 +78,7 @@ def min_curvature_line(x, y, psi, kappa_c, ds, w_max, alpha=5e-6, smooth=3.0):
 
 
 def apply_driver_margin(x, y, psi, ds, w, w_max, vRef, margin=0.4, k=1.4,
-                        ay_budget=None, smooth=4.0, asym=True, bite=0.0):
+                        ay_budget=None, smooth=4.0, asym=True, bite=0.0, kHi=0.0):
     """Pull a racing line in from the corridor edge where the driver needs slack.
 
     The preview driver overshoots the line under LATERAL LOAD - through corners,
@@ -96,13 +96,20 @@ def apply_driver_margin(x, y, psi, ds, w, w_max, vRef, margin=0.4, k=1.4,
         dem = (np.clip(np.abs(kap0)*vRef*vRef/ay_budget, 0.0, 1.0)
                * np.clip((vRef/38.0)**2, 0.0, 1.0))
         dem = _gauss_periodic(dem, ds, 15.0)
-        wCap = np.clip(w_max - margin - k*dem, 0.3, w_max)
+        # hiV: how far past the driver's full-authority speed this point is (the steering
+        # gain knee sits at ~150 km/h). With kHi the margin gets a high-speed surcharge and
+        # the apex freedom / bite fade out - lets a long track (Nordschleife) run the full
+        # aggressive treatment through its slow-medium corners while its 180+ km/h sections
+        # keep the protection that validation showed they need.
+        hiV = _gauss_periodic(np.clip((vRef - 38.0)/10.0, 0.0, 1.0)**2, ds, 20.0)
+        wCap = np.clip(w_max - margin - (k + kHi*hiV)*dem, 0.3, w_max)
         # DIRECTION-AWARE: overshoot only ever pushes the car OUTWARD - it cannot
         # overshoot into an apex (it arrives wide, never deep). Margin therefore
         # belongs on the outside of a corner only; the apex side keeps full width.
         if asym:
             aX = _gauss_periodic(np.clip(kap0/0.004, -1.0, 1.0), ds, 8.0)
-            wIn = w_max - margin
+            fade = 1.0 - hiV if kHi else np.ones_like(hiV)   # apex freedom fades where fast
+            wIn = wCap + (w_max - margin - wCap)*fade
             hi = wCap + (wIn - wCap)*np.maximum(aX, 0.0)     # +n bound: apex side of a LEFT
             lo = -(wCap + (wIn - wCap)*np.maximum(-aX, 0.0)) # -n bound: apex side of a RIGHT
             w = np.clip(w, lo, hi)
@@ -111,10 +118,15 @@ def apply_driver_margin(x, y, psi, ds, w, w_max, vRef, margin=0.4, k=1.4,
                 # apex ~0.5 m short no matter the gains (measured; feedback is tanh-limited
                 # at the grip limit) - so bias the REFERENCE deeper at the dip bottoms by
                 # the known undershoot, and the driven car lands on the kerb
-                apx = (np.maximum(aX, 0.0)*np.clip((w - 0.6*wIn)/(0.4*wIn), 0, 1)
-                       - np.maximum(-aX, 0.0)*np.clip((-w - 0.6*wIn)/(0.4*wIn), 0, 1))
-                w = w + bite*apx
-            w = _gauss_periodic(w, ds, smooth)
+                wB = w_max - margin
+                apx = (np.maximum(aX, 0.0)*np.clip((w - 0.6*wB)/(0.4*wB), 0, 1)
+                       - np.maximum(-aX, 0.0)*np.clip((-w - 0.6*wB)/(0.4*wB), 0, 1))
+                w = w + bite*apx*fade
+            if kHi:   # speed-blended smoothing: sharp apex dips survive at slow corners,
+                      # fast flowing sections stay calm (heavy sigma = the weave guard)
+                w = (1.0 - hiV)*_gauss_periodic(w, ds, 4.0) + hiV*_gauss_periodic(w, ds, smooth)
+            else:
+                w = _gauss_periodic(w, ds, smooth)
         else:
             w = _gauss_periodic(np.clip(w, -wCap, wCap), ds, smooth)
     else:

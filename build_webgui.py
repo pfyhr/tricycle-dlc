@@ -65,8 +65,11 @@ def build_track(key):
     ayb = 0.9*cfg0['profile']['ayFrac']*cfg0['profile']['mu']*9.80665
     demN = (np.clip(np.abs(kc)*vN**2/ayb, 0.0, 1.0)     # loaded...
             * np.clip((vN/38.0)**2, 0.0, 1.0))          # ...AND fast (slow corners keep width)
-    cutB, cutK = (0.2, 0.8) if key == 'nordschleife' else (0.15, 0.4)   # NS: narrow + 200 km/h,
-    wOcp = np.clip(wMax - cutB - cutK*demN, 0.3, wMax)                  # keep its conservative corridor
+    # NS corridor: slow-medium corners get the standard cut; a high-speed surcharge protects
+    # the 180+ km/h sections where the gain-limited driver needs the line held in
+    hiN = np.clip((vN - 38.0)/10.0, 0.0, 1.0)**2
+    cutHi = 0.5 if key == 'nordschleife' else 0.0
+    wOcp = np.clip(wMax - 0.15 - 0.4*demN - cutHi*hiN, 0.3, wMax)
     o = _cache.get(key)                             # OCP inputs fixed per track; rm cache to re-solve
     if o is not None and 'n' in o:
         nOpt_c, dOcp_c, uOcp_c = o['n'], o['d'], o['u']
@@ -92,21 +95,24 @@ def build_track(key):
     # per-track driver margin: the short Swedish tracks are wide and slow enough that the
     # driver's apex overshoot lands on the kerb; the Nordschleife is narrow with 200 km/h
     # corners (where the steering-gain knee limits tracking) and needs more line in hand
-    mg, mk, sm, asym = ((0.4, 3.4, 8.0, False) if key == 'nordschleife'
-                        else (0.25, 1.4, 4.0, True))
-    bite = {'nordschleife': 0.0, 'kinnekulle': 0.15}.get(key, 0.75)   # kinnekulle's fast exits
-    # are the overshoot hotspot - it takes less aim bias (and its layout data is outdated)
+    # Nordschleife: same aggressive slow-corner treatment as the short tracks, with the
+    # high-speed surcharge kHi (margin), apex-freedom/bite fade and heavy smoothing taking
+    # over above ~140 km/h - the regime where validation showed the driver needs the line
+    mg, mk, sm, asym, kHi = ((0.25, 2.35, 8.0, True, 1.3) if key == 'nordschleife'
+                             else (0.25, 1.4, 4.0, True, 0.0))
+    bite = {'kinnekulle': 0.15}.get(key, 0.75)   # kinnekulle's fast exits are the overshoot
+    # hotspot - it takes less aim bias (and its layout data is outdated)
     # steer at the BITTEN line, pace on the UNBITTEN one: the saturated driver undershoots a
     # deep apex by ~0.5 m no matter what (measured), so the aim point is biased past the apex
     # (nRef/psiRef) while speed and steer-feedforward (kapLine/dsSeg/deltaFF) come from the
     # line the car actually ends up driving - aiming deep must not slow the reference.
     nRef0, psiRef0, kapLine, dsSeg = apply_driver_margin(x, y, psi, ds, nRef, wMax, vLine,
                                                          margin=mg, k=mk, ay_budget=ayb,
-                                                         smooth=sm, asym=asym, bite=0.0)
+                                                         smooth=sm, asym=asym, bite=0.0, kHi=kHi)
     if bite:
         nRef, psiRef, _, _ = apply_driver_margin(x, y, psi, ds, nRef, wMax, vLine,
                                                  margin=mg, k=mk, ay_budget=ayb,
-                                                 smooth=sm, asym=asym, bite=bite)
+                                                 smooth=sm, asym=asym, bite=bite, kHi=kHi)
     else:
         nRef, psiRef = nRef0, psiRef0
     dOcp = np.interp(s, np.append(sc, Lc), np.append(dOcp_c, dOcp_c[0]))
