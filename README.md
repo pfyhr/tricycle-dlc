@@ -162,6 +162,23 @@ When you **drive yourself** (arrow keys / WASD / touch), the same plant runs wit
 steer and pedal inputs replacing the driver law — plus a soft-ground penalty (rolling drag
 up, grip trimmed) once you put wheels past the white line.
 
+### Is the port faithful?
+
+Claim tested, not assumed: `port_validation.py` takes the baked Knutstorp tables and the
+Elise's reference speed straight out of the built page, laps the **OpenModelica**
+`TrackTricycle` on them, and laps the **JavaScript** plant on the identical inputs:
+
+![Port validation: Modelica vs JS, same car, same line](outputs/svg/port_validation.svg)
+
+Lap time **70.2 s vs 70.1 s (Δ0.1 s)**; speed rms 3.3 km/h, road-wheel steer rms 2.4°,
+lateral offset rms 0.50 m over the lap. The visible residuals are the two *documented*
+differences, not porting error: the JS driver brakes later and harder into corners (its
+telemetry calibration), and its steering stays quiet at 150+ km/h where the Modelica
+driver's original lookahead law rings — the exact limit cycle the JS driver later fixed
+with a lookahead cap and gain knee. (Raising the Modelica gains to the JS's level
+reproduces that oscillation faithfully, which is itself evidence the two implementations
+share their dynamics.)
+
 ## Track sim: minimum-time laps of planar circuits
 
 The `Tricycle.Track` sub-package re-expresses the tricycle in **track (Frenet)
@@ -217,6 +234,8 @@ python3 track_render.py --track=knutstorp         # chase-camera HTML viewer (ou
                                                   # GTA-style follow cam, minimap, speed/yaw/accel HUD
 python3 build_webgui.py                           # build the live browser simulator (outputs/index.html):
                                                   # JS port of plant+driver, all five tracks, live tuning
+python3 port_validation.py                        # faithfulness check: Modelica vs JS, same car+line
+                                                  # (outputs/svg/port_validation.svg)
 ```
 
 Adding a track is one entry in the `TRACKS` registry in `tracks/fetch_track.py`
