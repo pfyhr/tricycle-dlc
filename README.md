@@ -1,17 +1,18 @@
-# tricycle-dlc
+# kerbhopping
 
-![tests](https://github.com/pfyhr/tricycle-dlc/actions/workflows/ci.yml/badge.svg)
+![tests](https://github.com/pfyhr/kerbhopping/actions/workflows/ci.yml/badge.svg)
 
-Minimal, defensible **planar vehicle model** built around two questions: the tire forces
-that reach the suspension links and steering arm through a traditional **unassisted
-rack-and-pinion** during an **ISO 3888-1 double lane change**, and the **minimum-time lap**
-of a real circuit. The model is Modelica (OpenModelica); a faithful JavaScript port runs the
-whole thing — plant, driver and speed profile — **live in your browser**, and the headline
-cars are **calibrated against real GPS+IMU lap telemetry** from Ring Knutstorp.
+A **live track-driving simulator** built on a minimal, defensible **planar vehicle
+model**: per circuit a **minimum-time racing line** (CasADi/IPOPT optimal control) that you
+can watch, race and re-tune in your browser, with the headline cars **calibrated against
+real GPS+IMU lap telemetry** from Ring Knutstorp. The physics is a faithful JavaScript port
+of an OpenModelica model. The project began as a study of steering-rack forces in an
+ISO 3888-1 double lane change — that study lives on further down, and its plant is where
+the "tricycle" got its name.
 
 ## Live simulator
 
-**→ [pfyhr.github.io/tricycle-dlc](https://pfyhr.github.io/tricycle-dlc/)** — runs in the
+**→ [pfyhr.github.io/kerbhopping](https://pfyhr.github.io/kerbhopping/)** — runs in the
 browser, nothing to install.
 
 ![Live in-browser simulator](outputs/live_sim.png)
@@ -67,8 +68,9 @@ lumped wheel.
 
 ### Tyres: analytic brush model
 
-Each wheel runs the Pacejka **brush** model (Tyre and Vehicle Dynamics, ch. 3), which is
-smooth, event-free and cheap:
+Each wheel runs the classic **brush** tyre model — the physical bristle picture that was
+the standard before empirical fits took over (Svendenius 2003 has the lineage; the analytic
+form here follows Pacejka, Tyre and Vehicle Dynamics ch. 3) — smooth, event-free and cheap:
 
 - cornering stiffness with degressive load sensitivity: `C_α(F_z) = c1·sin(2·atan(F_z/c2))` —
   doubling the load less-than-doubles the stiffness, so transferring load across an axle
@@ -159,53 +161,6 @@ and its driver keeps a small tracking margin a professional would not. The four 
 When you **drive yourself** (arrow keys / WASD / touch), the same plant runs with your
 steer and pedal inputs replacing the driver law — plus a soft-ground penalty (rolling drag
 up, grip trimmed) once you put wheels past the white line.
-
-## Modelica origin: the double-lane-change study
-
-`modelica/Tricycle.mo` (single-file Modelica package, simulated with OpenModelica):
-
-- **`PlanarTricycle`** — planar three-wheel ("tricycle") vehicle: individual front
-  wheels (own slip angles, quasi-static lateral load transfer with a roll-mode lag),
-  lumped rear wheel — the architecture used for front-axle force estimation in
-  WO 2025/113783 (Marzbanrad & Jonasson, Volvo). Chassis: 2 DOF (lateral velocity, yaw
-  rate) at constant speed + path kinematics. Kingpin moment per side =
-  Fy·(mechanical trail) − Mz; tie-rod force = M_kp/L_arm. `toeL`/`toeR` inputs are
-  hooks for an active-toe actuator (wired to 0 here).
-- **`TireData` / `brushForces`** — Pacejka brush tire (Tire and Vehicle Dynamics,
-  Ch. 3): analytic Fy(α, Fz) and Mz(α, Fz) with a pneumatic trail that starts at
-  a_p/3 ≈ 20 mm and collapses to zero at the grip limit; degressive load sensitivity;
-  first-order relaxation lag. Smooth and event-free.
-- **`ManualSteering`** — handwheel/column inertia + ideal pinion
-  (r_p = L_arm/i_S, i_S = 20 typical for unassisted steering) + rack mass. No assist:
-  the full kingpin reaction reflects to the handwheel, τ_HW = F_rack·r_p.
-- **`Iso3888Path`** — ISO 3888-1 reference centerline (sections 15/30/25/25/15/15 m,
-  3.5 m offset, 125 m total) + MacAdam-class single-point preview driver with yaw-rate
-  damping. The driver turns the handwheel through a 2 Hz arm filter.
-- **Examples** — `StepSteer` (understeer validation), `DoubleLaneChange` (headline,
-  closed-loop at the ISO-recommended 80 km/h), `OpenLoopDLC` (prescribed one-period
-  sine, repeatable sweeps).
-
-![Double lane change animation](outputs/gif/dlc_anim.gif)
-
-*Closed-loop ISO 3888-1 double lane change at 80 km/h (real-time playback): vehicle
-outline at true yaw with the running time, heading and lateral-acceleration readout.
-The distance axis is compressed 2:1; gate compliance is checked on the true footprint.*
-
-## Headline results (defaults: D-segment sedan, 80 km/h)
-
-| Quantity | Value |
-|---|---|
-| ISO 3888-1 gates (full-footprint check) | PASS, margins +91/+68/+151 mm |
-| Peak lateral acceleration | 0.76 g |
-| Peak tie-rod force | ≈ 1.4 kN per side (left/right split by load transfer) |
-| Peak kingpin moment | ≈ 150 N·m per wheel |
-| Peak handwheel angle / torque | ≈ 110° / **10 N·m** (unassisted!) |
-| Understeer gradient (tires-only) | 0.96 deg/g — low edge of the production band, as expected with compliance/roll steer omitted |
-
-Note the driver tuning (Tp = 0.55 s, Kdrv = 0.22, Kr = 0.25) is deliberately slow and
-well damped: the 2 Hz arm filter adds phase lag that the preview must compensate, and
-tighter tunings destabilize the driver–steering loop — a genuine interaction, not a
-numerical artifact.
 
 ## Track sim: minimum-time laps of planar circuits
 
@@ -328,7 +283,54 @@ to ~0.7–1.0 m rms.
 The OCP needs CasADi (`pip install casadi`, bundles IPOPT); `--line=optimal`
 (min-curvature) remains the dependency-free default.
 
-## Run
+## Modelica origin: the double-lane-change study
+
+`modelica/Tricycle.mo` (single-file Modelica package, simulated with OpenModelica):
+
+- **`PlanarTricycle`** — planar three-wheel ("tricycle") vehicle: individual front
+  wheels (own slip angles, quasi-static lateral load transfer with a roll-mode lag),
+  lumped rear wheel — the architecture used for front-axle force estimation in
+  WO 2025/113783 (Marzbanrad & Jonasson, Volvo). Chassis: 2 DOF (lateral velocity, yaw
+  rate) at constant speed + path kinematics. Kingpin moment per side =
+  Fy·(mechanical trail) − Mz; tie-rod force = M_kp/L_arm. `toeL`/`toeR` inputs are
+  hooks for an active-toe actuator (wired to 0 here).
+- **`TireData` / `brushForces`** — classic brush tire (analytic form after Pacejka,
+  Tire and Vehicle Dynamics Ch. 3; see Svendenius 2003 for the model family): analytic Fy(α, Fz) and Mz(α, Fz) with a pneumatic trail that starts at
+  a_p/3 ≈ 20 mm and collapses to zero at the grip limit; degressive load sensitivity;
+  first-order relaxation lag. Smooth and event-free.
+- **`ManualSteering`** — handwheel/column inertia + ideal pinion
+  (r_p = L_arm/i_S, i_S = 20 typical for unassisted steering) + rack mass. No assist:
+  the full kingpin reaction reflects to the handwheel, τ_HW = F_rack·r_p.
+- **`Iso3888Path`** — ISO 3888-1 reference centerline (sections 15/30/25/25/15/15 m,
+  3.5 m offset, 125 m total) + MacAdam-class single-point preview driver with yaw-rate
+  damping. The driver turns the handwheel through a 2 Hz arm filter.
+- **Examples** — `StepSteer` (understeer validation), `DoubleLaneChange` (headline,
+  closed-loop at the ISO-recommended 80 km/h), `OpenLoopDLC` (prescribed one-period
+  sine, repeatable sweeps).
+
+![Double lane change animation](outputs/gif/dlc_anim.gif)
+
+*Closed-loop ISO 3888-1 double lane change at 80 km/h (real-time playback): vehicle
+outline at true yaw with the running time, heading and lateral-acceleration readout.
+The distance axis is compressed 2:1; gate compliance is checked on the true footprint.*
+
+### DLC headline results (defaults: D-segment sedan, 80 km/h)
+
+| Quantity | Value |
+|---|---|
+| ISO 3888-1 gates (full-footprint check) | PASS, margins +91/+68/+151 mm |
+| Peak lateral acceleration | 0.76 g |
+| Peak tie-rod force | ≈ 1.4 kN per side (left/right split by load transfer) |
+| Peak kingpin moment | ≈ 150 N·m per wheel |
+| Peak handwheel angle / torque | ≈ 110° / **10 N·m** (unassisted!) |
+| Understeer gradient (tires-only) | 0.96 deg/g — low edge of the production band, as expected with compliance/roll steer omitted |
+
+Note the driver tuning (Tp = 0.55 s, Kdrv = 0.22, Kr = 0.25) is deliberately slow and
+well damped: the 2 Hz arm filter adds phase lag that the preview must compensate, and
+tighter tunings destabilize the driver–steering loop — a genuine interaction, not a
+numerical artifact.
+
+### Run the Modelica pipeline
 
 ```
 python3 dlc_maneuver.py      # simulations, figures (outputs/svg), animation (outputs/gif), summary CSV
@@ -340,7 +342,7 @@ Requires OpenModelica (`omc` on PATH), Python 3 with numpy + matplotlib.
 Everything sweepable (speed, driver, steering ratio, tire and chassis parameters) is a
 top-level parameter of the examples, overridable per run via `-override=...`.
 
-## Validation
+### DLC validation
 
 - Steady-state yaw-rate gain matches the analytic linear bicycle *including aligning
   moments* to < 1 % across 40–120 km/h:

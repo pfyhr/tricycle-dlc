@@ -3,7 +3,7 @@ name: Deploy live simulator to GitHub Pages
 # Publishes the outputs/ folder (the live simulator index.html landing page, plus the
 # per-combo figures and chase-cam players) as a static site. Everything is
 # self-contained HTML/SVG - no build step. Enable once in repo Settings -> Pages ->
-# Source: "GitHub Actions". Site URL: https://<user>.github.io/tricycle-dlc/
+# Source: "GitHub Actions". Site URL: https://<user>.github.io/kerbhopping/
 
 on:
   push:

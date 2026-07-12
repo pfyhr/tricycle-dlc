@@ -27,3 +27,9 @@ are listed in the `Tricycle.PlanarTricycle` documentation annotation and the REA
 A deferred calibration: raising rear c1 to 1.7e5 would move the tires-only understeer
 gradient from 0.96 to ≈1.5 deg/g, defensible as a Pacejka *effective axle
 characteristic* absorbing the omitted compliance/roll-steer understeer.
+
+- Svendenius, J. (2003). *Tire Models for Use in Braking Applications.* Licentiate
+  Thesis, Department of Automatic Control, Lund Institute of Technology. Brush-model
+  reference and lineage ("well-known approach... very popular in the 1960s and 1970s
+  before the empirical approaches became dominating"); our analytic Fy/Mz form matches
+  its Ch. 3 exposition. https://lucris.lub.lu.se/ws/files/4386030/8840416.pdf
