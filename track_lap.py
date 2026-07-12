@@ -140,8 +140,8 @@ print(f'{DISPLAY} ({tag}): centerline L = {LTRK:.0f} m, path {pathLen:.0f} m; '
 # ---- 2. simulate -------------------------------------------------------------------
 override = override_string(cfg, LTRK, vRef[0])
 mos = (f'loadModel(Modelica); loadFile("Tricycle.mo");\n'
-       f'simulate(Tricycle.Examples.TrackLap, stopTime=900, '
-       f'numberOfIntervals=18000, outputFormat="csv", variableFilter="{LAP_VARS}", '
+       f'simulate(Tricycle.Examples.TrackLap, stopTime=900, method="rungekutta", '
+       f'numberOfIntervals=150000, outputFormat="csv", variableFilter="{LAP_VARS}", '
        f'fileNamePrefix="build/{STEM}_lap", '
        f'simflags="{override}"); getErrorString();\n')
 open('/tmp/trike_nslap.mos', 'w').write(mos)

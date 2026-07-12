@@ -166,18 +166,31 @@ up, grip trimmed) once you put wheels past the white line.
 
 Claim tested, not assumed: `port_validation.py` takes the baked Knutstorp tables and the
 Elise's reference speed straight out of the built page, laps the **OpenModelica**
-`TrackTricycle` on them, and laps the **JavaScript** plant on the identical inputs:
+`TrackTricycle` on them, and laps the **JavaScript** plant on the identical inputs. The
+driver is ONE law in both plants — the telemetry-calibrated steering (lookahead cap,
+high-speed gain knee) and pedals (late-hard brake commit, friction-circle shares,
+hold-speed-to-the-braking-point) were developed in the JS against the live sim and
+telemetry, then backported to the Modelica `TrackDriver`; the track plant runs
+relaxation-free by default to match the port (a `relaxOn` switch restores it — with it
+on, the same driver gains ring at high speed, which is how the two loop dynamics were
+shown to agree in the first place).
 
 ![Port validation: Modelica vs JS, same car, same line](outputs/svg/port_validation.svg)
 
-Lap time **70.2 s vs 70.1 s (Δ0.1 s)**; speed rms 3.3 km/h, road-wheel steer rms 2.4°,
-lateral offset rms 0.50 m over the lap. The visible residuals are the two *documented*
-differences, not porting error: the JS driver brakes later and harder into corners (its
-telemetry calibration), and its steering stays quiet at 150+ km/h where the Modelica
-driver's original lookahead law rings — the exact limit cycle the JS driver later fixed
-with a lookahead cap and gain knee. (Raising the Modelica gains to the JS's level
-reproduces that oscillation faithfully, which is itself evidence the two implementations
-share their dynamics.)
+Lap time **70.0 s vs 70.0 s (Δ0.1 s)**; over the full lap the speed traces agree to
+**0.3 km/h rms**, the road-wheel steer to **0.39° rms**, and the driven line to
+**0.05 m rms** — the two curves are indistinguishable at plot scale.
+
+The third trace is the **real lap** (69.5 s): the logged GPS is rigidly fitted onto the
+track frame (the driven lap *is* the track, so three closest-point Procrustes rounds
+recover the projection), giving the real speed *and the real driven line* on the same
+s-axis. The real speed matches the sims corner-for-corner — and shows exactly where the
+sim line is still conservative (the fast left at s ≈ 950 where the real driver carries
+~15 km/h more). The real line swings the same apex pattern with slightly more amplitude
+(kerbs). One honest footnote: the fit also *measures* the OSM centerline's own lateral
+error — a slowly varying **~3 m mean bias (10 m worst)** that the whole track frame
+inherits; it is removed (100 m high-pass, labeled) before the line comparison, and it
+means the logged laps could eventually be used to *correct* the track geometry itself.
 
 ## Track sim: minimum-time laps of planar circuits
 
