@@ -81,6 +81,17 @@ form here follows Pacejka, Tyre and Vehicle Dynamics ch. 3) — smooth, event-fr
 - aligning moment from a pneumatic trail `a_p(F_z) = a_p0·√(F_z/F_znom)` that collapses to
   zero at the limit — the steering "goes light" exactly when the front axle saturates.
 
+These are the exact Chapter-3 forms — `λ = 1 − θ|σ|` (3.8), `F_y = µF_z(1 − λ³)` (3.11),
+`M_z = −µF_z·a·λ³(1 − λ)` (3.12), trail `t₀ = a/3` at vanishing slip (3.14) — with
+Pacejka's Magic-Formula load function supplying the `C_α(F_z)` that Chapter 3 keeps
+constant. The calibrated Elise's tyres, plotted in those conventions (`tyre_curves.py`):
+
+![Elise brush-tyre characteristics](outputs/svg/elise_tyres.svg)
+
+Left: the load sensitivity that makes lateral transfer cost front grip. Middle: the
+aligning-moment dip. Right: the pneumatic trail falling from a/3 toward zero as the
+contact patch saturates — the "steering goes light" signal a driver feels at the limit.
+
 Longitudinal force is allocated *after* lateral: the drive/brake demand is clipped per axle by
 the **friction-ellipse remainder** `√((µF_z)² − F_y²)` — an idealized TC/ABS. Drive is
 rear-only and additionally capped by engine power `P/u`; brakes split `kBf` to the front axle.
