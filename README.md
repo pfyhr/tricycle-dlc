@@ -147,13 +147,12 @@ are the known car specs; the fit adjusted tyre µ and the used lateral budget.
 | speed-trace error v(s), rms | — | 9.2 km/h |
 
 The remaining ~0.5-1 s sits in the line model, not the car: the sim's track has no kerbs to cut
-and its driver keeps a small tracking margin a professional would not. The five cars:
+and its driver keeps a small tracking margin a professional would not. The four cars:
 
 | Preset | m | P | µ | provenance |
 |---|--:|--:|--:|---|
 | Lotus Elise | 862 kg | 88 kW | 1.80 | fitted to the owner's logged laps |
 | Mazda MX-5 "Oskar" | 980 kg | 104 kW | 1.82 | fitted to Oskar's logged lap 19 |
-| BMW M3 E36 (tourer) | 1650 kg | 150 kW | 0.95 | the original Modelica defaults |
 | BMW M140i | 1530 kg | 250 kW | 1.30 | spec-based; µ matches its logged 1.28 g |
 | Clubman Racer | 580 kg | 116 kW | 1.75 | Swedish Clubman class figures, slicks + wing |
 

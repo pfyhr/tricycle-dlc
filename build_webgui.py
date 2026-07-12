@@ -144,7 +144,7 @@ def flat(car):
 print('solving racing lines:')
 TRK = {t: build_track(t) for t in TLIST}
 NAMES = {t: TRACKS[t]['display'] for t in TLIST}
-PRESETS = {c: flat(c) for c in ('elise', 'miata', 'tourer', 'm140', 'clubman')}
+PRESETS = {c: flat(c) for c in ('elise', 'miata', 'm140', 'clubman')}
 
 # real telemetry per (track, car): fraction, kmh, real lap seconds from the CSV header
 TEL = {}

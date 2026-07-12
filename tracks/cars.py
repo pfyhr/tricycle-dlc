@@ -65,7 +65,7 @@ CARS = {
         Kus=1.63e-3),
 
     'elise': _car(
-        'Lotus Elise (862 kg, 118 hp)',
+        'Lotus Elise (862 kg, 88 kW)',
         # mu/ayFrac calibrated against the owner's RaceLogs (racelogs.py): best real
         # Knutstorp lap 1:09.5 over 4 consistent sessions, sustained |ay| p99 = 1.62 g,
         # vmax 163 km/h, braking p90 0.9 g. R-compound at light Elise wheel loads ->
@@ -82,7 +82,7 @@ CARS = {
         grip_frac=0.88),      # plant realizes ~1.5 g of the 1.80 nominal mu
 
     'miata': _car(
-        'Mazda MX-5 "Oskar" (980 kg, 140 hp)',
+        'Mazda MX-5 "Oskar" (980 kg, 104 kW)',
         # calibrated against Oskar's real Knutstorp lap 19 (racelogs.py): 1:08.0,
         # sustained |ay| p99 = 1.67 g, vmax 167 km/h - the fastest real lap on file.
         m=980, Pmax=104e3, CdA=0.66, Crr=0.012, rho=1.20, mu=1.82, ayFrac=0.97,
@@ -100,7 +100,7 @@ CARS = {
     # bend - the track was rebuilt since our layout data; see falkenberg for a fit
     # target once that track is added.
     'm140': _car(
-        'BMW M140i (1530 kg, 340 hp)',
+        'BMW M140i (1530 kg, 250 kW)',
         m=1530, Pmax=250e3, CdA=0.66, Crr=0.011, rho=1.20, mu=1.30, ayFrac=0.95,
         hcg=0.52, a=1.29, b=1.40,           # L=2.69 m, front-engine RWD ~52/48
         Izz=2600, tf=1.57, xiF=0.55, kBf=0.64,
@@ -112,7 +112,7 @@ CARS = {
     # (real Swedish class figures), slicks and a big rear wing -> one of the fastest
     # sportscar classes in Scandinavia. ~200 W/kg, twice the Elise, plus downforce.
     'clubman': _car(
-        'Clubman Racer (580 kg, 155 hp)',
+        'Clubman Racer (580 kg, 116 kW)',
         m=580, Pmax=116e3, CdA=0.85, Crr=0.012, rho=1.20, mu=1.75, ayFrac=0.92,
         hcg=0.30, a=1.20, b=1.20,           # L=2.40 m, ~50/50, very low CG
         Izz=780, tf=1.55, xiF=0.48, kBf=0.60,
