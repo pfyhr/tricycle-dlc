@@ -304,13 +304,22 @@ function deriv(y,P,vRef,ctrl){
     // a slide keeps r high; either one holds the power off).
     const latK=Math.min(1,Math.abs(kapNow)*u*u/(P.mu*C.g));
     const latR=Math.min(1,Math.abs(r)*u/(P.mu*C.g)), latT=Math.max(latK,latR);
+    let w=0;
     if(aFar<axCmd){
       // smooth commit band (75-100% of the trigger): a hard threshold chatters as the need
       // hovers near it - 0.13 s brake stabs in bursts; a real foot applies once and holds
       const trig=C.brkTrig*P.mu*C.g*gHi, w0=Math.min(1,Math.max(0,(-aFar-0.75*trig)/(0.25*trig)));
-      const w=w0*w0*(3-2*w0);
+      w=w0*w0*(3-2*w0);
       if(w>0) axCmd=Math.min(axCmd, w*(1+(C.brkMul-1)*gHi)*aFar*Math.sqrt(1-latK*latK));
     } else if(axCmd>0) axCmd*=Math.sqrt(1-latT*latT);
+    // before the commitment the driver does NOT ride the reference speed down into a
+    // braking zone (that early soft lift made the sim shed speed well before a real
+    // driver would - visible against both the Modelica lap and the logged laps): hold
+    // speed, coasting at most, until the commit band engages
+    if(w<1){ const floor=(-P.mu*C.g)*w;                    // hold speed (right foot down)...
+      if(axCmd<floor && axCmd<0 && latK<0.5)                 // ...until the commit engages;
+        axCmd=axCmd*(1-gHi)+floor*gHi;                       // above the gain knee keep the
+    }                                                        // early lift (slow hands, no data)
   }
   const aFL=delta-Math.atan((vy+P.a*r)/Math.max(u-r*P.tf/2,C.uMin));
   const aFR=delta-Math.atan((vy+P.a*r)/Math.max(u+r*P.tf/2,C.uMin));
