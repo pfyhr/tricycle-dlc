@@ -574,7 +574,11 @@ function drawCar(x,y,h,del,ghost,brk){
   ctx.fillStyle=ghost?'#7d838a':c.col; ctx.fill(c.topP);      // raised centre panel = shoulder line
   ctx.strokeStyle='rgba(0,0,0,.16)'; ctx.lineWidth=0.028; ctx.stroke(c.topP);
   if(qR>0.02){                                               // rectangular rear wing (above the deck; ghost keeps it)
-    const w={x:c.tailX+0.10, span:Math.min(0.62+0.55*Math.sqrt(qR),0.95), w:0.18+0.14*Math.sqrt(qR)};
+    // closed-wheel cars: perch it forward of the tail lights (deck/hatch mount) so the
+    // brake lights stay visible; the open-wheeler hangs it off the very tail
+    const ww=0.18+0.14*Math.sqrt(qR),
+          wx=(c.openwheel||!c.tails)?c.tailX+0.10:c.tails[0][0]+0.16+ww/2,
+          w={x:wx, span:Math.min(0.62+0.55*Math.sqrt(qR),0.95), w:ww};
     ctx.fillStyle='rgba(0,0,0,.3)'; ctx.beginPath(); ctx.roundRect(w.x-w.w/2+0.05,-w.span+0.05,w.w,2*w.span,0.06); ctx.fill();
     ctx.fillStyle=ghost?'#61666c':shade(c.col,-0.15); for(const s of both){ ctx.beginPath(); ctx.roundRect(w.x-0.18,s*w.span-0.06,0.46,0.12,0.03); ctx.fill(); }
     ctx.fillStyle=ghost?'#3f444a':'#1a1c20'; ctx.beginPath(); ctx.roundRect(w.x-w.w/2,-w.span,w.w,2*w.span,0.06); ctx.fill();
