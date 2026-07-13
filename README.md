@@ -467,17 +467,30 @@ Requires OpenModelica (`omc` on PATH), Python 3 with numpy + matplotlib.
 Everything sweepable (speed, driver, steering ratio, tire and chassis parameters) is a
 top-level parameter of the examples, overridable per run via `-override=...`.
 
-### DLC validation
+### DLC validation (the study's original checks — still asserted in CI)
 
-- Steady-state yaw-rate gain matches the analytic linear bicycle *including aligning
-  moments* to < 1 % across 40–120 km/h:
+These were the project's first correctness checks, and they still run on every push;
+the [port-and-telemetry validation](#is-the-port-faithful) in the model chapter now sits
+above them, but they remain the anchor to closed-form theory:
+
+- **Against analytic theory**: steady-state yaw-rate gain matches the linear bicycle
+  *including aligning moments* to < 1 % across 40–120 km/h — the classic
+  understeer-gradient check, model vs closed form:
 
   ![Yaw-rate gain vs speed](outputs/svg/dlc_understeer.svg)
 
-- A NumPy twin of the brush tire is asserted against the Modelica steady state to
-  < 10⁻³ on every run of `dlc_maneuver.py`.
-- Gate compliance is checked on the full yawed vehicle footprint (all four corners),
-  matching the ISO "no cones displaced" intent.
+- **Across implementations**: a NumPy twin of the brush tire is asserted against the
+  Modelica steady state to < 10⁻³ on every run of `dlc_maneuver.py` (the same equations
+  now also live in the JS port, verified identical to ~10⁻¹³ N — the tyre-section curves
+  describe all three).
+- **Against the standard's intent**: ISO 3888-1 gate compliance is checked on the full
+  yawed vehicle footprint (all four corners) — "no cones displaced", not just the CG
+  between the lines.
+
+The full validation ladder, bottom to top: tyre equations identical across all three
+implementations → the two plants lap as one (0.05 m rms; 3 mm through this very
+maneuver) → the driver calibrated against logged laps (Δ0.5 s at Knutstorp) → the
+five-track regression suite in CI.
 
 ## Sources
 
