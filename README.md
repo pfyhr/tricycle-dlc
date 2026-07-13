@@ -506,6 +506,45 @@ lumped rear tire (slightly understeer-optimistic; front link loads unaffected); 
 DOF (roll-mode lag on load transfer instead); no steering column compliance or rack
 friction; tire parameters are textbook-typical, not fitted to a specific tire.
 
+## Appendix: car parameters
+
+Every number the plants use, per car (generated from `tracks/cars.py` by `car_table.py` —
+regenerate after preset changes). The four cars differ in far more than mass and power:
+yaw inertia spans 4× (Clubman 780 to M140i 2600 kg·m²), the Elise is the only
+rear-heavy one (38 % front), and the tyre stiffness/load scales are sized to each car's
+actual wheel loads:
+
+| parameter | unit | meaning | Lotus Elise | Mazda MX-5 "Oskar" | BMW M140i | Clubman Racer |
+|---|---|---|--:|--:|--:|--:|
+| m | kg | mass (incl. driver) | 862 | 980 | 1530 | 580 |
+| I_zz | kg·m² | yaw inertia | 1070 | 1300 | 2600 | 780 |
+| a / b | m | CG to front / rear axle | 1.43 / 0.87 | 1.15 / 1.15 | 1.29 / 1.40 | 1.20 / 1.20 |
+| L | m | wheelbase | 2.30 | 2.30 | 2.69 | 2.40 |
+| front weight | % | static front axle share = b/L | 38 | 50 | 52 | 50 |
+| t_f | m | front track width | 1.46 | 1.41 | 1.57 | 1.55 |
+| h_cg | m | CG height | 0.46 | 0.48 | 0.52 | 0.30 |
+| ξ_F | – | front share of the roll couple | 0.50 | 0.50 | 0.55 | 0.48 |
+| k_Bf | – | front share of brake force | 0.62 | 0.62 | 0.64 | 0.60 |
+| P_max | kW | peak drive power (rear wheel) | 88 | 104 | 250 | 116 |
+| C_dA | m² | drag area | 0.68 | 0.66 | 0.66 | 0.85 |
+| C_lA | m² | lift (downforce) area | 0.0 | 0.0 | 0.0 | 0.5 |
+| aeroBal | – | front share of downforce | – | – | – | 0.40 |
+| C_rr | – | rolling resistance | 0.012 | 0.012 | 0.011 | 0.012 |
+| µ | – | tyre friction coefficient | 1.80 | 1.82 | 1.30 | 1.75 |
+| ayFrac | – | driver share of the lateral budget | 0.96 | 0.97 | 0.95 | 0.92 |
+| c1F / c1R | N/rad | tyre stiffness scale, front wheel / lumped rear | 28000 / 92000 | 42000 / 84000 | 80000 / 150000 | 26000 / 52000 |
+| c2F / c2R | N | stiffness load scale (C_α = c1·sin(2·atan(F_z/c2))) | 1600 / 5250 | 2400 / 4800 | 3700 / 7300 | 1420 / 2840 |
+| F_z,nom F / R | N | nominal wheel loads (trail + contact length scale) | 1600 / 5250 | 2400 / 4800 | 3700 / 7300 | 1420 / 2840 |
+| a_p0 F / R | m | contact half-length at F_z,nom | 0.055 / 0.075 | 0.055 / 0.075 | 0.060 / 0.080 | 0.050 / 0.070 |
+| K_us | rad·s²/m | understeer gradient (steer FF) | 1.00e-3 | 1.20e-3 | 1.50e-3 | 0.80e-3 |
+| K_LA | rad/m | lookahead feedback gain (× KMUL 1.7) | 0.30 | 0.30 | 0.26 | 0.32 |
+| K_r | rad·s/rad | yaw damping gain | 0.60 | 0.60 | 0.60 | 0.60 |
+
+Global driver constants shared by all cars (see the driver section): KMUL = 1.7,
+lookahead x_LA = 5 m + 0.25·u capped at 38 m/s, gain knee 43 m/s (width 15), brake
+trigger 0.40 µg with ×1.25 commit, speed margin 0.08·(1−g_hi), steering actuator
+τ = 0.10 s, GRIP_DERATE = 0.90.
+
 ## License
 
 Released under the [MIT License](LICENSE).
