@@ -151,31 +151,44 @@ fig.savefig(os.path.join(HERE, 'outputs', 'svg', 'port_dlc_traj.svg'),
 print('wrote outputs/svg/port_dlc_traj.svg')
 
 # ---- 5. the animation ---------------------------------------------------------------
+# Dark canvas edge-to-edge, and the same SQX:1 compressed distance axis as the static
+# figure. The car stays a TRUE rectangle: its yaw is display-mapped into the compressed
+# geometry (psi' = atan(SQX*tan(psi)), as in dlc_maneuver.py) so it tracks the drawn
+# path without shearing.
 CARL, CARW = 3.9, 1.7
-figA, axA = plt.subplots(figsize=(10, 2.5))
-figA.patch.set_facecolor('white'); axA.set_facecolor('#3b3e44')
-axA.set_xlim(RUNIN - 12, sec[-1] + 12); axA.set_ylim(-3.2, 6.9)
+INK, DIM = '#e8e6df', '#c9c7c0'
+figA, axA = plt.subplots(figsize=(10, 2.15))
+figA.patch.set_facecolor('#3b3e44'); axA.set_facecolor('#3b3e44')
+figA.subplots_adjust(left=0.005, right=0.995, top=0.99, bottom=0.24)
+axA.set_xlim((RUNIN - 10)/SQX, (sec[-1] + 10)/SQX); axA.set_ylim(-3.2, 6.9)
 axA.set_aspect('equal'); axA.set_yticks([])
-axA.set_xlabel('x  [m]', fontsize=8); axA.tick_params(labelsize=7)
-axA.plot(s, nRef, color='#8f9498', lw=0.9, ls=':')
+ticks = np.arange(RUNIN, sec[-1] + 1, 20)
+axA.set_xticks(ticks/SQX); axA.set_xticklabels(f'{v:.0f}' for v in ticks)
+axA.set_xlabel(f'distance [m]  (axis compressed {SQX}:1)', fontsize=8, color=DIM)
+axA.tick_params(labelsize=7, colors=DIM)
+for sp in axA.spines.values():
+    sp.set_color('#55585c')
+axA.plot(s/SQX, nRef, color='#8f9498', lw=0.9, ls=':')
 for x0, x1, w, c in GATES:                     # the ISO cone gates
-    axA.fill_between([x0, x1], c - w/2, c + w/2, color='#5a7e9e', alpha=0.30, lw=0)
-    axA.plot([x0, x1], [c - w/2]*2, color='#e8e6df', lw=1.3)
-    axA.plot([x0, x1], [c + w/2]*2, color='#e8e6df', lw=1.3)
+    axA.fill_between([x0/SQX, x1/SQX], c - w/2, c + w/2, color='#5a7e9e',
+                     alpha=0.30, lw=0)
+    axA.plot([x0/SQX, x1/SQX], [c - w/2]*2, color=INK, lw=1.3)
+    axA.plot([x0/SQX, x1/SQX], [c + w/2]*2, color=INK, lw=1.3)
 axA.axhline(-2.6, color='#707377', lw=0.8)
 axA.axhline(6.3, color='#707377', lw=0.8)
 carM = plt.Rectangle((0, 0), CARL, CARW, fc='#f2c40e', ec='#111111', lw=0.8)
 carJ = plt.Rectangle((0, 0), CARL, CARW, fc='#e6e7e9', ec='#111111', lw=0.8,
                      alpha=0.45)
 axA.add_patch(carM); axA.add_patch(carJ)
-lbl = axA.text(0.015, 0.93, '', transform=axA.transAxes, fontsize=8,
-               color='#e8e6df', va='top')
-axA.text(0.015, 0.10, 'solid: OpenModelica   ghost: JavaScript port',
-         transform=axA.transAxes, fontsize=7, color='#c9c7c0')
+lbl = axA.text(0.015, 0.95, '', transform=axA.transAxes, fontsize=8,
+               color=INK, va='top')
+axA.text(0.015, 0.08, 'solid: OpenModelica   ghost: JavaScript port',
+         transform=axA.transAxes, fontsize=7, color=DIM)
 
 def place(car, xc, yc, h):
-    tr = (transforms.Affine2D().translate(-CARL/2, -CARW/2).rotate(h)
-          .translate(xc, yc) + axA.transData)
+    hd = np.arctan(SQX*np.tan(h))              # yaw mapped into compressed display
+    tr = (transforms.Affine2D().translate(-CARL/2, -CARW/2).rotate(hd)
+          .translate(xc/SQX, yc) + axA.transData)
     car.set_transform(tr)
 
 def frame(i):
@@ -188,5 +201,5 @@ def frame(i):
 ani = animation.FuncAnimation(figA, frame, frames=len(tg), blit=True)
 os.makedirs(os.path.join(HERE, 'outputs', 'gif'), exist_ok=True)
 out = os.path.join(HERE, 'outputs', 'gif', 'port_dlc.gif')
-ani.save(out, writer=animation.PillowWriter(fps=24), dpi=90)
+ani.save(out, writer=animation.PillowWriter(fps=24), dpi=110)
 print('wrote', out)
