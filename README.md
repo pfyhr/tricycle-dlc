@@ -327,7 +327,7 @@ The racing line is 4–7 % quicker, and the car tracks it to within ~1.2 m rms.
 (These are the geometric min-curvature lines; the live simulator runs the OCP
 min-time lines below, which is why its Knutstorp lap is a second faster still.)
 
-![Nordschleife racing line colored by speed](outputs/svg/tourer_ns_map.svg)
+![Nordschleife racing line colored by speed — Elise, OCP line](outputs/elise_ns_map.png)
 
 ```
 python3 tracks/fetch_track.py --track=all         # (re)build centerlines from OSM - needs network

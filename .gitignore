@@ -11,3 +11,4 @@ modelica/*.makefile
 modelica/*.libs
 modelica/*.log
 .webgui_ocp_cache.pkl
+outputs/svg/*_map.svg
