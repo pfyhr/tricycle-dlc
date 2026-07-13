@@ -48,14 +48,13 @@ plant and the JS port:
 
 ```mermaid
 flowchart LR
-  T["<b>baked per-track tables</b><br/>racing line: n_ref, psi_ref, kappa_line, delta_FF<br/>speed profile: v_ref(s)"]
+  T["<b>baked per-track tables</b><br/>racing line: n_ref, psi_ref,<br/>kappa_line, delta_FF<br/>speed profile: v_ref(s)"]
   subgraph D["driver — one law in both plants"]
-    direction TB
     FF["steer feedforward<br/>(L + K_us u^2)*kappa_line + delta_FF<br/>read u*0.6 s ahead"]
-    FB["lookahead feedback: -g_hi*K_LA*e_LA<br/>e_LA = (n - n_ref) + x_LA*(dpsi - psi_ref)<br/>x_LA = 5 m + 0.25*u (capped), knee g_hi"]
+    FB["lookahead feedback: -g_hi*K_LA*e_LA<br/>e_LA = (n - n_ref) + x_LA*(dpsi - psi_ref)<br/>x_LA capped, gain knee g_hi"]
     DM["yaw damper<br/>-K_r*(r - kappa_line*u)"]
     ST["sum, tanh clamp +/-20 deg"]
-    SP["speed preview<br/>(v_ref(s + u*1s)^2 - u^2) / (2*u*1s)"]
+    SP["speed preview<br/>(v_ref(s + u*1s)^2 - u^2)/(2 u*1s)"]
     BT["far-horizon brake trigger<br/>commit band ~0.4 mu g x g_hi, brake x1.25,<br/>friction-circle shares, hold-speed floor"]
     FF --> ST
     FB --> ST
@@ -63,11 +62,10 @@ flowchart LR
     SP --> BT
   end
   subgraph P["plant — 9-state tricycle"]
-    direction TB
-    AC["steer actuator<br/>tau*d(delta)/dt + delta = delta_cmd, tau = 0.10 s"]
-    AL["force allocation<br/>power cap P/u, brake split k_Bf,<br/>friction-ellipse remainder (ideal TC/ABS)"]
+    AC["steer actuator<br/>tau = 0.10 s"]
+    AL["force allocation<br/>power cap P/u, brake split k_Bf,<br/>friction-ellipse remainder"]
     TY["brush tyres FL / FR / rear<br/>(Pacejka ch. 3)"]
-    LT["load-transfer lags<br/>roll tau = 0.15 s, pitch tau = 0.20 s"]
+    LT["load-transfer lags<br/>roll 0.15 s, pitch 0.20 s"]
     CH["chassis + Frenet kinematics<br/>states s, n, dpsi, u, v_y, r"]
     AC --> TY
     AL --> TY
@@ -78,7 +76,7 @@ flowchart LR
   T --> FF & FB & SP & BT
   ST -- "delta_cmd" --> AC
   BT -- "a_x,cmd" --> AL
-  CH -- "state feedback: s, n, dpsi, u, v_y, r" --> D
+  CH -- "state feedback: s, n, dpsi, u, v_y, r" --> FB & DM & SP & BT
 ```
 
 ### Plant: 9 states, three wheels
