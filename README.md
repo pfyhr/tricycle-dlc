@@ -114,15 +114,31 @@ steer** passed through as a dynamic feedforward, minus lookahead-error feedback
 `x_LA = 5 m + 0.25·u` ahead (capped at u = 38 m/s). The feedback gain rolls off above a
 speed knee (u ≈ 43 m/s) — quick hands don't work at 200 km/h, and without the rolloff the
 wheel saws on fast straights. A yaw-damping term `K_r·(r − κ·u)` and a `tanh` saturation at
-the 20° steering stop close the loop; the command then passes through the 0.10 s actuator.
+the 20° steering stop close the loop. The command then drives the road wheel through a
+first-order **actuator**, `τ·δ̇ + δ = δ_cmd` with τ = 0.10 s (state 7 of the plant) — the
+lumped driver-arm-plus-linkage response: a step command reaches 63 % in 0.1 s, during
+which the car covers 4–6 m at corner speeds. It is the dominant lag in the steering loop —
+the speed-growing lookahead's phase lead exists precisely to compensate it — and it
+low-passes the feedback before it reaches the tyres, which is why gains that are stable
+here start ringing the moment a second lag (tyre relaxation) is added to the loop.
 
-**Pedals** follow the reference speed with a ~1 s preview, but braking for a corner beyond
-the preview is an **onset trigger, not a plan**: the far horizon watches the kinematic
-deceleration needed for every point ~2 s ahead, and only when that need reaches ~0.4 µg does
-the driver commit — then brakes ~25 % *harder* than kinematically necessary, trailing off as
-the planned path curvature claims its share of the friction circle. This late-hard shape came
-straight from the logged laps (real braking p90 = 0.90 g; an earlier spread-out horizon
-never exceeded 0.6 g and gave laps 5 s too slow). Symmetrically, the throttle gets no more
+**Pedals** track the reference speed through a ~1 s preview:
+`a_x = (v_ref(s + u·1s)² − u²)/(2·u·1s)`, a constant-deceleration law that reproduces the
+profile's own acceleration when the car is exactly on it and self-corrects when it is not.
+Corners beyond that window are watched by a **far horizon** — every 6 m out to ~2.2 s
+ahead, each point's kinematic need `a(d) = (v_ref(s+d)² − u²)/(2d)`, i.e. the constant
+braking that would *just* meet it. The crucial distinction is what to do with that number.
+A **plan** brakes at the worst need as soon as any point needs anything — a feather-light
+brake from 100 m out, ramping gently: that was the original implementation, it never
+exceeded 0.6 g, and it lapped 5 s slower than the logs. A **trigger** instead holds speed
+(right foot down, no lift) while the need grows as the corner approaches — the need rises
+roughly as 1/d — and only when it climbs into a smooth commit band around **0.4 µg**
+(scaled down by the steering-gain knee where the hands are slow) does the driver commit:
+braking ~25 % *harder* than the kinematic need, keeping reserve for the turn-in transient,
+then trailing off as the planned path curvature claims its share of the friction circle.
+The band is smooth rather than a hard threshold because a threshold chatters — the need
+hovers at the boundary and the foot stabs (measured: bursts of 0.13 s brake applications).
+This late-hard shape came straight from the logged laps (real braking p90 = 0.90 g). Symmetrically, the throttle gets no more
 than the friction-circle remainder of the *worse* of planned curvature and measured `|r|·u` —
 no full power until the car is unwound, which is what keeps corner-exit power-on understeer
 from running the car wide. Where the steering gain has rolled off, the driver also carries a
