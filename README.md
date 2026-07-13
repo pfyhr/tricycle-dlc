@@ -6,9 +6,9 @@ A **live track-driving simulator** built on a minimal, defensible **planar vehic
 model**: per circuit a **minimum-time racing line** (CasADi/IPOPT optimal control) that you
 can watch, race and re-tune in your browser, with the headline cars **calibrated against
 real GPS+IMU lap telemetry** from Ring Knutstorp. The physics is a faithful JavaScript port
-of an OpenModelica model. The project began as a study of steering-rack forces in an
-ISO 3888-1 double lane change — that study lives on further down, and its plant is where
-the "tricycle" got its name.
+of an OpenModelica model. The project began as a study of ISO 3888-1
+double lane changes — that study lives on further down, and its plant is where the
+"tricycle" got its name.
 
 ## Live simulator
 
@@ -69,9 +69,9 @@ lumped wheel.
 
 ### Tyres: analytic brush model
 
-Each wheel runs the classic **brush** tyre model — the physical bristle picture that was
-the standard before empirical fits took over (Svendenius 2003 has the lineage; the analytic
-form here follows Pacejka, Tyre and Vehicle Dynamics ch. 3) — smooth, event-free and cheap:
+Each wheel runs the classic **brush** tyre model (the analytic form of Pacejka, Tyre and
+Vehicle Dynamics ch. 3) — smooth, event-free, cheap, and the same expressions to the last
+epsilon in the Modelica plant and the JS port:
 
 - cornering stiffness with degressive load sensitivity: `C_α(F_z) = c1·sin(2·atan(F_z/c2))` —
   doubling the load less-than-doubles the stiffness, so transferring load across an axle
@@ -354,7 +354,7 @@ The OCP needs CasADi (`pip install casadi`, bundles IPOPT); `--line=optimal`
   Fy·(mechanical trail) − Mz; tie-rod force = M_kp/L_arm. `toeL`/`toeR` inputs are
   hooks for an active-toe actuator (wired to 0 here).
 - **`TireData` / `brushForces`** — classic brush tire (analytic form after Pacejka,
-  Tire and Vehicle Dynamics Ch. 3; see Svendenius 2003 for the model family): analytic Fy(α, Fz) and Mz(α, Fz) with a pneumatic trail that starts at
+  Tire and Vehicle Dynamics Ch. 3): analytic Fy(α, Fz) and Mz(α, Fz) with a pneumatic trail that starts at
   a_p/3 ≈ 20 mm and collapses to zero at the grip limit; degressive load sensitivity;
   first-order relaxation lag. Smooth and event-free.
 - **`ManualSteering`** — handwheel/column inertia + ideal pinion
