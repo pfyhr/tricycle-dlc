@@ -5,7 +5,7 @@ Regenerate after any preset change and paste over the table in the README append
 """
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tracks'))
-from cars import CARS
+from cars import CARS, induced_drag
 
 ORDER = ['elise', 'miata', 'm140', 'clubman']
 ROWS = [
@@ -19,9 +19,10 @@ ROWS = [
     ('ξ_F',    '–',       'front share of the roll couple',      lambda c: f"{c['trike']['xiF']:.2f}"),
     ('k_Bf',   '–',       'front share of brake force',          lambda c: f"{c['trike']['kBf']:.2f}"),
     ('P_max',  'kW',      'peak drive power (rear wheel)',       lambda c: f"{c['Pmax']/1e3:.0f}"),
-    ('C_dA',   'm²',      'drag area',                           lambda c: f"{c['trike']['CdA']:.2f}"),
+    ('C_dA',   'm²',      'drag area (base body)',               lambda c: f"{c['trike']['CdA']:.2f}"),
     ('C_lA',   'm²',      'lift (downforce) area',               lambda c: f"{c['trike'].get('ClA',0.0):.1f}"),
     ('aeroBal','–',       'front share of downforce',            lambda c: f"{c['trike'].get('aeroBal',0.42):.2f}" if c['trike'].get('ClA',0) else '–'),
+    ('C_dA,i', 'm²',      'lift-induced drag area (from C_lA)',  lambda c: f"{induced_drag(c['trike'].get('ClA',0.0), c['trike']['tf'], c['trike'].get('aeroBal',0.45)):.3f}" if c['trike'].get('ClA',0) else '–'),
     ('C_rr',   '–',       'rolling resistance',                  lambda c: f"{c['trike']['Crr']:.3f}"),
     ('µ',      '–',       'tyre friction coefficient',           lambda c: f"{c['trike']['muF']:.2f}"),
     ('ayFrac', '–',       'driver share of the lateral budget',  lambda c: f"{c['profile']['ayFrac']:.2f}"),

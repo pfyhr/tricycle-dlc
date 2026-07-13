@@ -126,6 +126,30 @@ CARS = {
 
 
 import copy
+import math
+
+# Aerodynamic cost of downforce: classical lift-induced drag, CdA_i = ClA^2/(pi*e*b^2)
+# per lifting surface, with the span b capped at the car's overall width - race wings
+# are width-limited, which is why they run aspect ratios near 2 (Katz 2006, Annu. Rev.
+# Fluid Mech. 38:27-63). e ~ 0.9 with endplates (endplates raise the effective span;
+# Hoerner 1985 via Katz 2006). The package is modeled as TWO such surfaces - front and
+# rear, carrying aeroBal and (1-aeroBal) of the lift - so the induced drag is the sum
+# of two per-wing terms. This makes aero balance a real trade-off: concentrating the
+# lift on one span-limited wing costs more drag than splitting it. At the Clubman's
+# ClA = 0.5 m^2 / 40% front this costs ~0.015 m^2 (package L/D ~ 33, the efficient
+# wing-plus-floor end); a slider-maxed 5 m^2 at 45% front costs ~1.5 m^2 (package
+# L/D ~ 3.4 - the whole-car efficiency of a modern F1 package).
+AERO_E = 0.9
+AERO_SPAN_PAD = 0.20      # overall width ~ front track + tyre width
+
+
+def induced_drag(ClA, tf, aeroBal=0.45):
+    """Lift-induced drag area [m^2] of a front+rear downforce package totaling ClA
+    on a car of front track tf, with aeroBal of the lift on the front surface."""
+    b = tf + AERO_SPAN_PAD
+    qF, qR = aeroBal*ClA, (1.0 - aeroBal)*ClA
+    return (qF**2 + qR**2)/(math.pi*AERO_E*b**2)
+
 
 # Setup options layered on any car. Each is a single-axis variation from baseline: pure
 # parameter changes that the Modelica plant already supports. (Downforce lives only in the
@@ -156,6 +180,14 @@ def build_config(car, setup='base'):
     if ClA:                       # downforce: profile + plant + OCP all see the aero map
         p['ClA'], p['aeroBal'] = ClA, aeroBal
         t['ClA'], t['aeroBal'] = ClA, aeroBal
+    # Downforce is not free: add the lift-induced drag of the final ClA. The presets
+    # exported to the web sim carry the BASE CdA (c['CdA_base']) and the browser
+    # applies the identical formula live as the slider moves (webgui liveParams) -
+    # keep the two in sync.
+    c['CdA_base'] = t['CdA']
+    dCdAi = induced_drag(t.get('ClA', 0.0), t['tf'], t.get('aeroBal', 0.45))
+    p['CdA'] += dCdAi
+    t['CdA'] += dCdAi
     c['ocp'] = ocp_params(c)
     c['setup'], c['setup_label'] = setup, s['label']
     return c

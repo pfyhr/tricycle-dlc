@@ -776,7 +776,12 @@ function tick(ts){
 // Replay mode re-solves the whole lap on every change and scrubs the recording. Live mode
 // keeps a persistent plant state and integrates it forward in wall-clock time, so a slider
 // change takes effect from wherever the car is right now (no re-solve, no jump to S/F).
-function liveParams(){ const P=Object.assign({},car); P.CdA=car.CdA+0.10*P.ClA;
+// Downforce is not free: lift-induced drag of the front+rear package, per-wing
+// CdA_i = (bal*ClA)^2/(pi*e*b^2) + ((1-bal)*ClA)^2/(pi*e*b^2), span b capped at the
+// car's width (Katz 2006). MUST match induced_drag() in tracks/cars.py.
+function inducedCdA(P){ const b=P.tf+0.20, k=Math.PI*0.9*b*b,
+  qF=P.aeroBal*P.ClA, qR=(1-P.aeroBal)*P.ClA; return (qF*qF+qR*qR)/k; }
+function liveParams(){ const P=Object.assign({},car); P.CdA=car.CdA+inducedCdA(P);
   if(wet){P.muF*=0.72;P.muR*=0.72;P.mu*=0.72;} return P; }
 function liveUpdate(){ LP=liveParams(); LvRef=profile(LP);      // apply a slider change live, no re-solve
   if(LY)LY.clean=false;                     // a mid-lap change -> the in-progress lap time isn't clean
@@ -871,7 +876,8 @@ $('restart').onclick=()=>{ if(!R)return; if(!pb.live)setLive(true);
   if(!pb.playing){ pb.playing=true; $('play').textContent='❚❚'; } };
 // ---- car setup / solve ----------------------------------------------------------
 const SL=[['m','Mass',400,1700,1,'kg'],['Pmax','Power',50e3,200e3,1e3,'kW',v=>Math.round(v/1e3)],
-  ['mu','Grip µ',1.0,2.0,0.01,''],['ClA','Downforce',0,5,0.1,'m²']];
+  ['mu','Grip µ',1.0,2.0,0.01,''],['ClA','Downforce',0,5,0.1,'m²'],
+  ['aeroBal','Aero balance',0.25,0.60,0.01,'',v=>Math.round(v*100)+'% front']];
 let car, wet=false;
 const sd=$('sliders');
 SL.forEach(([k,lab,mn,mx,st])=>{const el=document.createElement('label');el.className='slider';

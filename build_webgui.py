@@ -131,8 +131,11 @@ def build_track(key):
 
 def flat(car):
     c = build_config(car, 'base'); t = c['trike']; d = c['driver']
+    # CdA exported is the BASE drag area: the browser adds the lift-induced part
+    # itself (inducedCdA in the template, mirror of cars.induced_drag) so the
+    # ClA/aeroBal sliders move the drag live without double-counting.
     return dict(name=CARS[car]['display'], m=t['m'], Izz=t['Izz'], a=t['a'], b=t['b'],
-                tf=t['tf'], hcg=t['hcg'], xiF=t['xiF'], kBf=t['kBf'], CdA=t['CdA'],
+                tf=t['tf'], hcg=t['hcg'], xiF=t['xiF'], kBf=t['kBf'], CdA=c['CdA_base'],
                 Crr=t['Crr'], rho=t['rho'], muF=t['muF'], muR=t['muR'], mu=t['muF'],
                 c1F=t['c1F'], c1R=t['c1R'], c2F=t['c2F'], c2R=t['c2R'],
                 FzNomF=t['FzNomF'], FzNomR=t['FzNomR'], ap0F=t['ap0F'], ap0R=t['ap0R'],
