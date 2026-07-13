@@ -157,7 +157,6 @@ def induced_drag(ClA, tf, aeroBal=0.45):
 # plant doesn't model yet. ClA/aeroBal are still threaded through so the OCP could use it.)
 SETUPS = {
     'base':       dict(label='Baseline'),
-    'wet':        dict(label='Wet track', mu_scale=0.72),
     'ballast_lo': dict(label='Ballast −50 kg', dm=-50.0),
     'ballast_hi': dict(label='Ballast +50 kg', dm=+50.0),
     'oversteer':  dict(label='Loose (oversteer)', dxiF=-0.12),

@@ -28,7 +28,7 @@ ap.add_argument('--car', default='tourer', choices=list(CARS),
                 help='vehicle parameter set (tourer = original 1650 kg/150 kW, '
                      'elise = track-day Lotus Elise tuned to real telemetry)')
 ap.add_argument('--setup', default='base', choices=list(SETUPS),
-                help='setup option layered on the car (aero/wet/ballast/balance)')
+                help='setup option layered on the car (ballast/balance)')
 ap.add_argument('--line', default='optimal', choices=['optimal', 'center', 'ocp'],
                 help='minimum-curvature racing line (optimal), centerline following '
                      '(center), or provably min-time optimal control (ocp; needs casadi)')

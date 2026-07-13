@@ -9,7 +9,7 @@ For each sim track the fixed, car-independent racing line is the 3-DOF minimum-T
 positions wide on straights to straighten the next corner (e.g. sits LEFT onto Knutstorp's
 main straight) and picks true late apexes. Its sideslip steer feedforward (deltaFF) is baked
 too so the JS driver holds the aggressive line. Sliders change the CAR (mass, power, grip mu,
-downforce) plus a dry/wet toggle; a dropdown switches track. The lap re-solves live. Real
+downforce, aero balance); a dropdown switches track. The lap re-solves live. Real
 telemetry (where logged) is overlaid on the speed trace.
 
 The UI adopts the Modelica chase-cam player's look (track_render.py): a full-viewport

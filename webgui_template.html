@@ -50,10 +50,6 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
   background:var(--accent);cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.5)}
 input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:var(--accent);
   cursor:pointer;border:none}
-.seg{display:flex;gap:6px;margin-top:4px}
-.seg button{flex:1;background:rgba(255,255,255,.05);border:1px solid var(--panel-line);color:var(--ink-dim);
-  border-radius:7px;font-family:var(--sans);font-size:12px;padding:6px 0;cursor:pointer}
-.seg button.on{border-color:var(--accent);color:var(--accent);background:rgba(232,193,90,.08)}
 
 /* bottom-left: live telemetry */
 #tele{bottom:66px;left:14px;display:flex;gap:18px;align-items:flex-end}
@@ -165,7 +161,6 @@ body.driving.touched #drivehint{display:none}   /* hide the prompt once the play
   <h3>Car setup</h3>
   <select id="preset"></select>
   <div id="sliders"></div>
-  <div class="seg"><button id="dry" class="on">Dry</button><button id="wet">Wet</button></div>
 </div>
 
 <div class="hud" id="tele">
@@ -781,8 +776,7 @@ function tick(ts){
 // car's width (Katz 2006). MUST match induced_drag() in tracks/cars.py.
 function inducedCdA(P){ const b=P.tf+0.20, k=Math.PI*0.9*b*b,
   qF=P.aeroBal*P.ClA, qR=(1-P.aeroBal)*P.ClA; return (qF*qF+qR*qR)/k; }
-function liveParams(){ const P=Object.assign({},car); P.CdA=car.CdA+inducedCdA(P);
-  if(wet){P.muF*=0.72;P.muR*=0.72;P.mu*=0.72;} return P; }
+function liveParams(){ const P=Object.assign({},car); P.CdA=car.CdA+inducedCdA(P); return P; }
 function liveUpdate(){ LP=liveParams(); LvRef=profile(LP);      // apply a slider change live, no re-solve
   if(LY)LY.clean=false;                     // a mid-lap change -> the in-progress lap time isn't clean
   $('carname').textContent=car.name+' · '+D.names[curTrack]; }
@@ -847,7 +841,7 @@ function fillSessionLive(){                 // top-left panel while live: actual
   else $('delta').textContent='—';
   $('peakg').textContent=LY.pkAy.toFixed(2)+' g'; $('vmax').textContent=Math.round(LY.vmx)+' km/h';
 }
-function rebaseGhost(){                      // new baseline car (preset / dry-wet): reset the ghost & timing
+function rebaseGhost(){                      // new baseline car (preset change): reset the ghost & timing
   if(!LY)return; Object.assign(LY, liveMeta(LY.t)); LY.ghostT=(LY.y[0]/T.L)*R.lap;   // align ghost to car
 }
 function setLive(on){
@@ -878,7 +872,7 @@ $('restart').onclick=()=>{ if(!R)return; if(!pb.live)setLive(true);
 const SL=[['m','Mass',400,1700,1,'kg'],['Pmax','Power',50e3,200e3,1e3,'kW',v=>Math.round(v/1e3)],
   ['mu','Grip µ',1.0,2.0,0.01,''],['ClA','Downforce',0,5,0.1,'m²'],
   ['aeroBal','Aero balance',0.25,0.60,0.01,'',v=>Math.round(v*100)+'% front']];
-let car, wet=false;
+let car;
 const sd=$('sliders');
 SL.forEach(([k,lab,mn,mx,st])=>{const el=document.createElement('label');el.className='slider';
   el.innerHTML=`<span class="lab"><span>${lab}</span><span class="val" id="v_${k}"></span></span>
@@ -894,15 +888,13 @@ function slVal(k){const [,, , , , unit,disp]=SL.find(a=>a[0]===k);const raw=k===
   return (disp?disp(raw):(k==='mu'?raw.toFixed(2):k==='ClA'?raw.toFixed(1):Math.round(raw)))+(unit?' '+unit:'');}
 function syncSliders(){SL.forEach(([k])=>{$('s_'+k).value=k==='mu'?car.muF:car[k];$('v_'+k).textContent=slVal(k);});}
 function applyPreset(name){car=Object.assign({},D.presets[name]); car.m0=D.presets[name].m; syncSliders(); apply();}
-// preset / dry-wet change = a different baseline car: re-solve it and reset the ghost to match;
+// preset change = a different baseline car: re-solve it and reset the ghost to match;
 // a plain slider tweak keeps the same baseline and just re-profiles the live car (liveUpdate)
 function apply(){ if(pb.live){ solveR(); liveUpdate(); rebaseGhost(); } else run(); }
 SL.forEach(([k])=>{$('s_'+k).addEventListener('input',e=>{const val=+e.target.value;
   if(k==='mu'){car.muF=val;car.muR=val;car.mu=val;} else car[k]=val; $('v_'+k).textContent=slVal(k);
   if(pb.live)liveUpdate(); else schedule();});});
-$('preset').addEventListener('change',e=>{wet=false;$('dry').classList.add('on');$('wet').classList.remove('on');applyPreset(e.target.value);});
-$('dry').onclick=()=>{wet=false;$('dry').classList.add('on');$('wet').classList.remove('on');apply();};
-$('wet').onclick=()=>{wet=true;$('wet').classList.add('on');$('dry').classList.remove('on');apply();};
+$('preset').addEventListener('change',e=>{applyPreset(e.target.value);});
 let raf=0; function schedule(){ if(raf)return; raf=requestAnimationFrame(()=>{raf=0;run();}); }
 function solveR(){ const P=liveParams();     // solve the current car's full reference lap (baseline)
   R=simulate(P); R.tel=(D.tel[curTrack]||{})[$('preset').value]||null; }

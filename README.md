@@ -20,7 +20,7 @@ browser, nothing to install.
 The same 3-DOF plant, lookahead driver and quasi-steady speed profile, ported to JavaScript:
 a full lap solves in a few milliseconds, so there is no backend and nothing to wait for. It
 opens in **real-time driving** — the car laps the circuit under the live physics, and the
-sliders (mass, power, grip μ, downforce, aero balance, dry/wet) take effect **from wherever the car is right
+sliders (mass, power, grip μ, downforce, aero balance) take effect **from wherever the car is right
 now**, no re-solve and no jump back to the line. A translucent **baseline "ghost"** of the car
 as it was before you started tuning laps alongside for comparison: drawn on the track when it
 is near, always a second dot on the minimap, and an edge arrow with the gap in metres when it
