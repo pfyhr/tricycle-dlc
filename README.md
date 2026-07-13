@@ -37,7 +37,7 @@ self-contained `outputs/index.html`, published to GitHub Pages on every push to 
 
 ## The vehicle model (what actually runs in your browser)
 
-Everything below lives in `webgui_template.html` as ~120 lines of physics — a faithful port
+Everything below lives in `webgui_template.html` as ~160 lines of physics — a faithful port
 of the Modelica `Track.TrackTricycle` plant (**[validated below](#is-the-port-faithful)**;
 see the [Modelica origin chapter](#modelica-origin-the-double-lane-change-study) for its
 heritage), integrated with fixed-step **RK4 at dt = 6 ms**. A full lap is ~12 000 steps and solves in a few
@@ -173,7 +173,7 @@ low-passes the feedback before it reaches the tyres, which is why gains that are
 here start ringing the moment a second lag (tyre relaxation) is added to the loop.
 
 **Pedals** track the reference speed through a ~1 s preview:
-`a_x = (v_ref(s + u·1s)² − u²)/(2·u·1s)`, a constant-deceleration law that reproduces the
+`a_x = (v_ref(s + u·1s)² − u²)/(2·u·1s)`, a constant-acceleration law that reproduces the
 profile's own acceleration when the car is exactly on it and self-corrects when it is not.
 Corners beyond that window are watched by a **far horizon** — every 6 m out to ~2.2 s
 ahead, each point's kinematic need `a(d) = (v_ref(s+d)² − u²)/(2d)`, i.e. the constant
@@ -219,12 +219,12 @@ are the known car specs; the fit adjusted tyre µ and the used lateral budget.
 
 | | real (logged) | simulated |
 |---|--:|--:|
-| Lotus Elise best lap, Knutstorp | **1:09.5** | 1:10.1 |
-| Mazda MX-5 best lap, Knutstorp | **1:08.0** | 1:09.1 |
+| Lotus Elise best lap, Knutstorp | **1:09.5** | 1:10.0 |
+| Mazda MX-5 best lap, Knutstorp | **1:08.0** | 1:09.0 |
 | sustained lateral (p99) | 1.62 / 1.67 g | ~1.5 g |
 | braking (p90) | 0.90 g | ~0.7 g |
 | top speed on track | 163 / 167 km/h | 169 / 173 km/h |
-| speed-trace error v(s), rms | — | 9.2 km/h |
+| speed-trace error v(s), rms | — | 7.6 km/h |
 
 The remaining ~0.5-1 s sits in the line model, not the car: the sim's track has no kerbs to cut
 and its driver keeps a small tracking margin a professional would not. The four cars:
@@ -259,6 +259,17 @@ Lap time **70.0 s vs 70.0 s (Δ0.1 s)**; over the full lap the speed traces agre
 **0.3 km/h rms**, the road-wheel steer to **0.39° rms**, and the driven line to
 **0.05 m rms** — the two curves are indistinguishable at plot scale.
 
+The third trace in the lap figure is the **real lap** (69.5 s): the logged GPS is
+rigidly fitted onto the track frame (the driven lap *is* the track, so three closest-point Procrustes rounds
+recover the projection), giving the real speed *and the real driven line* on the same
+s-axis. The real speed matches the sims corner-for-corner — and shows exactly where the
+sim line is still conservative (the fast left at s ≈ 950 where the real driver carries
+~15 km/h more). The real line swings the same apex pattern with slightly more amplitude
+(kerbs). One honest footnote: the fit also *measures* the OSM centerline's own lateral
+error — a slowly varying **~3 m mean bias (10 m worst)** that the whole track frame
+inherits; it is removed (100 m high-pass, labeled) before the line comparison, and it
+means the logged laps could eventually be used to *correct* the track geometry itself.
+
 And the origin story closes its loop: both plants driving the **ISO 3888-1 double lane
 change** the project began with — same Elise, same driver law, the JavaScript car drawn as
 a translucent ghost over the Modelica one (`port_dlc.py`):
@@ -268,17 +279,6 @@ a translucent ghost over the Modelica one (`port_dlc.py`):
 The two cars move as one — peak CG separation over the whole maneuver is **3 mm**:
 
 ![CG trajectory, both plants](outputs/svg/port_dlc_traj.svg)
-
-The third trace is the **real lap** (69.5 s): the logged GPS is rigidly fitted onto the
-track frame (the driven lap *is* the track, so three closest-point Procrustes rounds
-recover the projection), giving the real speed *and the real driven line* on the same
-s-axis. The real speed matches the sims corner-for-corner — and shows exactly where the
-sim line is still conservative (the fast left at s ≈ 950 where the real driver carries
-~15 km/h more). The real line swings the same apex pattern with slightly more amplitude
-(kerbs). One honest footnote: the fit also *measures* the OSM centerline's own lateral
-error — a slowly varying **~3 m mean bias (10 m worst)** that the whole track frame
-inherits; it is removed (100 m high-pass, labeled) before the line comparison, and it
-means the logged laps could eventually be used to *correct* the track geometry itself.
 
 ## Track sim: minimum-time laps of planar circuits
 
@@ -300,15 +300,14 @@ much as the asphalt allows — is computed by a fast regularized solve
 (`tracks/racing_line.py`; Braghin et al. 2008, Heilmeier et al. 2020). The
 quasi-steady minimum-time speed profile v_ref(s) is then recomputed *on that faster
 line* (corner-speed limit → power/traction-limited forward pass → braking-limited
-backward pass), and the two-channel `TrackDriver` tracks it. Steering is a
-feedforward–feedback law (Kapania & Gerdes 2015): a steer feedforward (line curvature
-with an understeer term, plus the OCP line's dynamic steer where available) plus
-**lookahead-error feedback** — the path error e_la = (n − n_ref) + x_LA·(Δψ − ψ_ref)
-evaluated a speed-scaled distance x_LA = x_LA0 + T_LA·v ahead, whose built-in phase
-lead lets one fixed gain hold the line to the grip limit without gain-scheduling —
-with yaw-rate damping. Throttle/brake is a preview-consistent constant-acceleration
-law. Setting the corridor to zero recovers exact centerline following, so the same
-driver does both (`track_lap.py --line=center`).
+backward pass, budgeted at the grip the plant actually sustains), and the two-channel
+`TrackDriver` tracks it — **the same unified driver described in
+[the model chapter](#the-driver-two-channels-calibrated-against-real-laps)**: the
+Kapania–Gerdes lookahead steering (one fixed gain carried by the speed-scaled
+lookahead's phase lead, now with the capped lookahead and high-speed gain knee the
+telemetry work added) and the pedal channel with its late-hard brake trigger and
+friction-circle shares. Setting the corridor to zero recovers exact centerline
+following, so the same driver does both (`track_lap.py --line=center`).
 
 This is a genuine racing line — wide entry, apex, track-out — but the
 minimum-curvature line for a fixed corridor, *not* a provably minimum-time trajectory
@@ -363,7 +362,7 @@ for a 3-DOF planar vehicle** (`tracks/opt_lap.py`; the min-curvature line warm-s
   the friction ellipse as an inequality F_x²+F_y² ≤ (μF_z)², the engine-power limit
   F_x·u ≤ P, quasi-static load transfer, and the track corridor;
 - transcribed by direct collocation into one nonlinear program and solved with
-  [CasADi](https://web.casadi.org/) + IPOPT (L-BFGS Hessian, ~30 s/track). The KKT
+  [CasADi](https://web.casadi.org/) + IPOPT (L-BFGS Hessian, ~30 s per short track, minutes for the Nordschleife). The KKT
   conditions certify **local** optimality (nonconvex — no global guarantee).
 
 This follows the standard minimum-lap-time formulation (Perantoni & Limebeer 2014; the
@@ -375,15 +374,16 @@ actually hold — not a weaving trajectory that only a point mass could follow.
 The full Modelica `TrackTricycle` then **drives** this line (the OCP chooses the line;
 OpenModelica simulates the real car tracking it), realized by the lookahead-error driver
 above. Two things make that tracking work: the OCP's own optimal steer is passed through
-as a dynamic feedforward, and the corridor is **speed-dependent** — pulled in from the
-edge where the car is fast (it runs wider on exit the faster it goes), so the aggressive
-line stays on the asphalt.
+as a dynamic feedforward, and the corridor and driver margins are **lateral-demand
+scaled** — pulled in only where the car is both fast *and* loaded (overshoot needs speed
+and lateral force; a flat-out straight tracks exactly), so the aggressive line stays on
+the asphalt while entries still use the full width.
 
 Honest caveats:
 
 1. **Optimal for a reduced model.** The 3-DOF single-track OCP omits the left/right load
-   transfer, tyre relaxation lag and steering actuator lag the full plant has — exactly
-   what the plant adds back when it drives the line. `T_opt` is the 3-DOF optimum, a
+   transfer and the steering actuator lag the full plant has — exactly what the plant
+   adds back when it drives the line. `T_opt` is the 3-DOF optimum, a
    close lower estimate, not a bound on the full car.
 2. **Local, not global.** IPOPT certifies a KKT point, not the absence of a better basin.
 3. **It helps most where the corners are slow and tight.** On flowing high-speed tracks
@@ -503,10 +503,14 @@ Parameter provenance and reference anchors in `sources/SOURCES.md`
 
 ## Documented omissions
 
-Constant speed; parallel steer (no Ackermann); no KPI/caster jacking; no scrub×Fx;
-lumped rear tire (slightly understeer-optimistic; front link loads unaffected); no roll
-DOF (roll-mode lag on load transfer instead); no steering column compliance or rack
-friction; tire parameters are textbook-typical, not fitted to a specific tire.
+For the DLC study's `PlanarTricycle`: constant speed; parallel steer (no Ackermann); no
+KPI/caster jacking; no scrub×Fx; no steering column compliance or rack friction; its
+tire parameters are textbook-typical. Shared by both plants: lumped rear tire (slightly
+understeer-optimistic; front link loads unaffected); no roll DOF (roll-mode lag on load
+transfer instead); planar — no elevation, banking or kerbs. The track plant adds the
+longitudinal DOF and drops the constant-speed assumption, and the sim cars' tyre
+parameters are *not* textbook-typical: the Elise and MX-5 are fitted to logged laps
+(see the calibration section).
 
 ## Appendix: car parameters
 

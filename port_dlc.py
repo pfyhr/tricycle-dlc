@@ -118,18 +118,33 @@ print(f'DLC done: Modelica exit n = {nM[-1]:+.3f} m, JS exit n = {nJ[-1]:+.3f} m
       f'{np.max(np.abs(series(tg, dm["time"], dm["n"]) - np.interp(sM, sJ, nJ))):.3f} m')
 
 # ---- 4. CG trajectory figure --------------------------------------------------------
-fig, ax = plt.subplots(figsize=(9.5, 2.9))
-fig.patch.set_facecolor('white'); ax.set_facecolor('white'); ax.grid(alpha=0.25)
-ax.plot(s, nRef, color='#9aa0a6', lw=1.0, ls=':', label='ISO 3888-1 reference path')
-ax.plot(sM, nM, color='#2b6cb0', lw=1.8, label='OpenModelica TrackTricycle')
-ax.plot(sJ, nJ, color='#dd6b20', lw=1.2, ls='--', label='JavaScript port')
-for e in sec:
-    ax.axvline(e, color='#cccccc', lw=0.6, zorder=0)
-ax.set_xlim(RUNIN - 15, sec[-1] + 15); ax.set_ylim(-1.2, 4.8)
-ax.set_xlabel('x  [m]'); ax.set_ylabel('CG y  [m]')
-ax.legend(loc='upper right', fontsize=8)
-ax.set_title('ISO 3888-1 double lane change at 80 km/h — Elise, both plants',
-             fontsize=10)
+# Same presentation as the original DLC study (dlc_maneuver.py): distance axis
+# compressed SQX:1 for readability, ISO 3888-1 cone gates drawn as shaded lanes with
+# solid boundaries. Gate widths per ISO for a BW = 1.8 m vehicle.
+SQX = 2
+BW = 1.8
+GATES = [(sec[0], sec[1], 1.1*BW + 0.25, 0.0),   # section 1: entry lane
+         (sec[2], sec[3], 1.2*BW + 0.25, 3.5),   # section 3: offset lane
+         (sec[4], sec[6], 1.3*BW + 0.25, 0.0)]   # sections 5+6: exit lane
+fig, ax = plt.subplots(figsize=(9.5, 3.0))
+fig.patch.set_facecolor('white'); ax.set_facecolor('white'); ax.grid(alpha=0.3)
+for x0, x1, w, c in GATES:
+    ax.fill_between([x0/SQX, x1/SQX], c - w/2, c + w/2, color='tab:blue',
+                    alpha=0.10, lw=0)
+    ax.plot([x0/SQX, x1/SQX], [c - w/2]*2, 'k-', lw=1.6)
+    ax.plot([x0/SQX, x1/SQX], [c + w/2]*2, 'k-', lw=1.6)
+ax.plot(s/SQX, nRef, color='#9aa0a6', lw=1.0, ls=':', label='ISO 3888-1 reference path')
+ax.plot(sM/SQX, nM, color='#2b6cb0', lw=1.8, label='OpenModelica TrackTricycle')
+ax.plot(sJ/SQX, nJ, color='#dd6b20', lw=1.2, ls='--', label='JavaScript port')
+ticks = np.arange(RUNIN, sec[-1] + 1, 20)
+ax.set_xticks(ticks/SQX); ax.set_xticklabels(f'{v:.0f}' for v in ticks)
+ax.set_xlim((RUNIN - 8)/SQX, (sec[-1] + 8)/SQX); ax.set_ylim(-2.2, 5.2)
+ax.set_aspect('equal')
+ax.set_xlabel(f'distance [m]  (axis compressed {SQX}:1)')
+ax.set_ylabel('lateral position [m]')
+ax.legend(loc='upper left', fontsize=8)
+ax.set_title('ISO 3888-1 double lane change at 80 km/h — CG path vs cone gates, '
+             'Elise, both plants', fontsize=10)
 fig.tight_layout()
 fig.savefig(os.path.join(HERE, 'outputs', 'svg', 'port_dlc_traj.svg'),
             bbox_inches='tight')
@@ -143,10 +158,12 @@ axA.set_xlim(RUNIN - 12, sec[-1] + 12); axA.set_ylim(-3.2, 6.9)
 axA.set_aspect('equal'); axA.set_yticks([])
 axA.set_xlabel('x  [m]', fontsize=8); axA.tick_params(labelsize=7)
 axA.plot(s, nRef, color='#8f9498', lw=0.9, ls=':')
-for e in sec:
-    axA.axvline(e, color='#55585c', lw=0.6)
-axA.axhline(-2.6, color='#e8e6df', lw=1.2)
-axA.axhline(6.3, color='#e8e6df', lw=1.2)
+for x0, x1, w, c in GATES:                     # the ISO cone gates
+    axA.fill_between([x0, x1], c - w/2, c + w/2, color='#5a7e9e', alpha=0.30, lw=0)
+    axA.plot([x0, x1], [c - w/2]*2, color='#e8e6df', lw=1.3)
+    axA.plot([x0, x1], [c + w/2]*2, color='#e8e6df', lw=1.3)
+axA.axhline(-2.6, color='#707377', lw=0.8)
+axA.axhline(6.3, color='#707377', lw=0.8)
 carM = plt.Rectangle((0, 0), CARL, CARW, fc='#f2c40e', ec='#111111', lw=0.8)
 carJ = plt.Rectangle((0, 0), CARL, CARW, fc='#e6e7e9', ec='#111111', lw=0.8,
                      alpha=0.45)
