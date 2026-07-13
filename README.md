@@ -282,7 +282,9 @@ means the logged laps could eventually be used to *correct* the track geometry i
 
 ## Track sim: minimum-time laps of planar circuits
 
-The `Tricycle.Track` sub-package re-expresses the tricycle in **track (Frenet)
+The `Tricycle.Track` sub-package of the Modelica model (`modelica/Tricycle.mo`; the
+package's origin is the [DLC study below](#modelica-origin-the-double-lane-change-study))
+re-expresses the tricycle in **track (Frenet)
 coordinates** (s, n, Δψ) and adds a **longitudinal degree of freedom**: rear-wheel
 drive limited by engine power (P_max/u) and by the rear friction-ellipse remainder
 √((μF_z)² − F_y²), brakes split front/rear under the same per-axle ellipse limit
