@@ -21,7 +21,9 @@ The same 3-DOF plant, lookahead driver and quasi-steady speed profile, ported to
 a full lap solves in a few milliseconds, so there is no backend and nothing to wait for. It
 opens in **real-time driving** — the car laps the circuit under the live physics, and the
 sliders (mass, power, grip μ, downforce, aero balance) take effect **from wherever the car is right
-now**, no re-solve and no jump back to the line. A translucent **baseline "ghost"** of the car
+now**, no re-solve and no jump back to the line. The aero you dial in is drawn on the car:
+a rear wing and front splitter appear and grow with `C_lA`, split per the balance slider
+(the Clubman's stock kit is its baseline 0.5 m² at 40 % front). A translucent **baseline "ghost"** of the car
 as it was before you started tuning laps alongside for comparison: drawn on the track when it
 is near, always a second dot on the minimap, and an edge arrow with the gap in metres when it
 is off-camera. The lap time shown is the **actual** time the car records crossing start/finish

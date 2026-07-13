@@ -533,15 +533,21 @@ const CARSPEC={
     seat:{x:-0.04,y:0,l:0.42,w:0.32}, soloY:-0.1, hoop:{x:-0.42,r:0.2}, susp:true,   // driver offset right...
     helm:[-0.06,-0.1], helmCol:'#f5f6f8', pods:[[0.02,0.5,0.88,0.26]],
     eng:{x0:0.58,x1:0.98,n:4,y0:0.09,y1:0.3},                         // ...engine louvres front-left
-    stripe:{x0:1.92,x1:0.34,w:0.14}, fwing:{x:1.8,span:0.82,w:0.22}, rwing:{x:-1.95,span:0.94,w:0.26},
+    stripe:{x0:1.92,x1:0.34,w:0.14},
     tails:[[-1.66,0.15]] }
 };
 for(const k in CARSPEC){ const c=CARSPEC[k]; c.bodyP=smoothLoop(c.body);
   c.topP=smoothLoop(c.body.map(([x,y])=>[x*0.9,y*0.78]));   // raised centre panel -> shoulder line
+  c.noseX=Math.max(...c.body.map(p=>p[0])); c.tailX=Math.min(...c.body.map(p=>p[0]));
   if(c.cockpit)c.cockpitP=smoothLoop(c.cockpit);
   if(c.greenhouse)c.ghP=smoothLoop(c.greenhouse); if(c.roof)c.roofP=smoothLoop(c.roof);
   if(c.lines)c.lineP=c.lines.map(openPath); }
 const both=[1,-1];
+// live aero kit on every car, sized from the ACTUAL sliders: front splitter grows with
+// aeroBal*ClA, rear wing with (1-aeroBal)*ClA (the ghost shows its baseline's aero).
+// Sized so the Clubman's stock 0.5 m2 / 40% front reproduces its original wing kit.
+function aeroQ(ghost){ const p=ghost?D.presets[$('preset').value]:car;
+  const cla=p.ClA||0, bal=p.aeroBal==null?0.45:p.aeroBal; return [bal*cla,(1-bal)*cla]; }
 function drawCar(x,y,h,del,ghost,brk){
   const c=CARSPEC[$('preset').value]||CARSPEC.elise;
   ctx.save(); ctx.translate(x,y); ctx.rotate(h); if(ghost)ctx.globalAlpha=0.42;
@@ -550,9 +556,12 @@ function drawCar(x,y,h,del,ghost,brk){
     c.wheels.forEach(([wx,wy])=>{ const s=Math.sign(wy);
       ctx.beginPath(); ctx.moveTo(wx-0.42,s*0.14); ctx.lineTo(wx,wy); ctx.moveTo(wx+0.28,s*0.14); ctx.lineTo(wx,wy); ctx.stroke(); });
     ctx.lineCap='butt'; }
-  if(c.fwing){ const w=c.fwing;                              // front wing: under the nose cone
-    ctx.fillStyle=ghost?'#4a4f55':'#15171b'; ctx.beginPath(); ctx.roundRect(w.x-w.w/2,-w.span,w.w,2*w.span,0.05); ctx.fill();
-    ctx.fillStyle=ghost?'#8b9198':c.col; for(const s of both){ ctx.beginPath(); ctx.roundRect(w.x-w.w/2-0.02,s*w.span-0.06,w.w+0.04,0.12,0.03); ctx.fill(); } }
+  const [qF,qR]=aeroQ(ghost);
+  if(qF>0.02){                    // front aero: full wing on the open-wheeler, splitter lip on the rest
+    const ow=c.openwheel, prot=(ow?0.10:0.06)+0.15*Math.sqrt(qF),
+          sp=ow?Math.min(0.5+0.3*Math.sqrt(qF),0.84):Math.min(0.40+0.20*Math.sqrt(qF),0.64), x0=c.noseX-0.35;
+    ctx.fillStyle=ghost?'#4a4f55':'#15171b'; ctx.beginPath(); ctx.roundRect(x0,-sp,c.noseX+prot-x0,2*sp,0.05); ctx.fill();
+    if(ow){ ctx.fillStyle=ghost?'#8b9198':(c.accent||c.col); for(const s of both){ ctx.beginPath(); ctx.roundRect(c.noseX+prot-0.12,s*sp-0.05,0.12,0.10,0.03); ctx.fill(); } } }
   c.wheels.forEach(([wx,wy],i)=>{ ctx.save();ctx.translate(wx,wy);if(i<2)ctx.rotate(del);  // wheels (front pair steers)
     ctx.fillStyle='#111214'; ctx.beginPath();ctx.roundRect(-c.wl/2,-c.ww/2,c.wl,c.ww,0.09);ctx.fill();
     ctx.fillStyle='rgba(150,156,164,.3)';                    // alloy hub between the tyre shoulders
@@ -564,13 +573,14 @@ function drawCar(x,y,h,del,ghost,brk){
     if(!ghost){ ctx.fillStyle='#101215'; ctx.beginPath(); ctx.roundRect(px+pw/2-0.16,s*py-ph/2+0.04,0.12,ph-0.08,0.04); ctx.fill(); } } }
   ctx.fillStyle=ghost?'#7d838a':c.col; ctx.fill(c.topP);      // raised centre panel = shoulder line
   ctx.strokeStyle='rgba(0,0,0,.16)'; ctx.lineWidth=0.028; ctx.stroke(c.topP);
-  if(c.rwing){ const w=c.rwing;                              // big rear wing (above the deck; ghost keeps it)
+  if(qR>0.02){                                               // rectangular rear wing (above the deck; ghost keeps it)
+    const w={x:c.tailX+0.10, span:Math.min(0.62+0.55*Math.sqrt(qR),0.95), w:0.18+0.14*Math.sqrt(qR)};
     ctx.fillStyle='rgba(0,0,0,.3)'; ctx.beginPath(); ctx.roundRect(w.x-w.w/2+0.05,-w.span+0.05,w.w,2*w.span,0.06); ctx.fill();
     ctx.fillStyle=ghost?'#61666c':shade(c.col,-0.15); for(const s of both){ ctx.beginPath(); ctx.roundRect(w.x-0.18,s*w.span-0.06,0.46,0.12,0.03); ctx.fill(); }
     ctx.fillStyle=ghost?'#3f444a':'#1a1c20'; ctx.beginPath(); ctx.roundRect(w.x-w.w/2,-w.span,w.w,2*w.span,0.06); ctx.fill();
     ctx.strokeStyle='rgba(255,255,255,.14)'; ctx.lineWidth=0.03;
     ctx.beginPath(); ctx.moveTo(w.x+w.w/2-0.03,-w.span+0.08); ctx.lineTo(w.x+w.w/2-0.03,w.span-0.08); ctx.stroke();
-    if(!ghost){ ctx.fillStyle=c.accent; for(const s of both){ ctx.beginPath(); ctx.roundRect(w.x-0.16,s*w.span-0.035,0.4,0.05,0.02); ctx.fill(); } } }
+    if(!ghost){ ctx.fillStyle=c.accent||shade(c.col,0.35); for(const s of both){ ctx.beginPath(); ctx.roundRect(w.x-0.16,s*w.span-0.035,0.4,0.05,0.02); ctx.fill(); } } }
   if(ghost){ ctx.restore(); return; }
   ctx.save(); ctx.clip(c.bodyP);                              // everything below stays inside the body
   ctx.fillStyle='rgba(0,0,0,.16)';                           // fender-lip shadow: mostly clipped away, leaving a crescent
