@@ -20,8 +20,10 @@ browser, nothing to install.
 The same 3-DOF plant, lookahead driver and quasi-steady speed profile, ported to JavaScript:
 a full lap solves in a few milliseconds, so there is no backend and nothing to wait for. It
 opens in **real-time driving** — the car laps the circuit under the live physics, and the
-sliders (mass, power, grip μ, downforce, dry/wet) take effect **from wherever the car is right
-now**, no re-solve and no jump back to the line. A translucent **baseline "ghost"** of the car
+sliders (mass, power, grip μ, downforce, aero balance) take effect **from wherever the car is right
+now**, no re-solve and no jump back to the line. The aero you dial in is drawn on the car:
+a rear wing and front splitter appear and grow with `C_lA`, split per the balance slider
+(the Clubman's stock kit is its baseline 0.5 m² at 40 % front). A translucent **baseline "ghost"** of the car
 as it was before you started tuning laps alongside for comparison: drawn on the track when it
 is near, always a second dot on the minimap, and an edge arrow with the gap in metres when it
 is off-camera. The lap time shown is the **actual** time the car records crossing start/finish
@@ -146,10 +148,20 @@ honest single number for "how much wing". Calibrating intuition: the Clubman's w
 floor at `C_lA = 0.5 m²` make ~0.23 kN at 100 km/h and ~0.9 kN at 200 km/h (16 % of the
 car's weight); the slider maximum of 5 m² is formula-car territory — ~9 kN at 200 km/h,
 more than an Elise weighs. In the model the downforce (i) splits `aeroBal` front/rear
-onto the axle loads, (ii) inflates the cornering budget with speed — the friction
-ellipse literally grows as you go faster, see the speed-reference section — and (iii) is
-not free: each m² of `C_lA` drags along +0.10 m² of `C_dA` (induced drag), which is why
-maxing the downforce slider visibly trims top speed. The two load-transfer states relax
+onto the axle loads — the **aero balance slider**; Katz (2006, Table 1, after Page 2000)
+gives ~45 % front as the desirable road-course split, 33–35 % for ovals — (ii) inflates
+the cornering budget with speed — the friction ellipse literally grows as you go faster,
+see the speed-reference section — and (iii) is **not free**: the package pays the
+classical **lift-induced drag** of two span-limited wings,
+`C_dA,i = [(bal·C_lA)² + ((1−bal)·C_lA)²] / (π·e·b²)` with the span `b` capped at the
+car's width — race wings are width-limited, which is why they run aspect ratios near 2
+(Katz 2006) — and `e ≈ 0.9` for the endplate gain (Hoerner via Katz). Quadratic in lift:
+the Clubman's 0.5 m² costs a negligible 0.015 m² (package L/D ≈ 33, the efficient
+wing-plus-floor end that Zhang, Toet & Zerihan 2006 describe for ground-effect parts),
+while a slider-maxed 5 m² costs ~1.5 m² (L/D ≈ 3.4 — whole-package F1 efficiency), which
+is why max downforce visibly trims top speed. Splitting the lift across both wings is
+part of the physics: an all-rear setting concentrates lift on one span-limited surface
+and pays more induced drag than a balanced one. The two load-transfer states relax
 toward `ξ_F·m·a_y·h/t_f` (front share of the roll couple) and `m·a_x·h/L` with their
 respective time constants — so a snap of steering or brakes takes ~0.15–0.2 s to fully
 load the outside/front tyres, exactly the transient that punishes "stab-the-pedal"
@@ -499,7 +511,11 @@ five-track regression suite in CI.
 Parameter provenance and reference anchors in `sources/SOURCES.md`
 (Pacejka, Heydinger SAE 1999-01-1336, ISO 3888-1:1999 incl. the recommended
 (80 ± 3) km/h entry speed, Milliken, MacAdam, Reimpell, a measured DLC field test
-[Bîndac et al. 2022], WO 2025/113783).
+[Bîndac et al. 2022], WO 2025/113783). Downforce aerodynamics:
+[Katz 2006, "Aerodynamics of Race Cars", *Annu. Rev. Fluid Mech.* 38:27–63](https://www.annualreviews.org/content/journals/10.1146/annurev.fluid.38.050304.092016)
+(width-limited low-AR race wings; Table 1 desirable front-downforce share) and
+[Zhang, Toet & Zerihan 2006, "Ground Effect Aerodynamics of Race Cars", *Appl. Mech. Rev.* 59:33–49](https://eprints.soton.ac.uk/42969/)
+(ground-effect parts as the most drag-efficient downforce).
 
 ## Documented omissions
 
@@ -532,9 +548,10 @@ actual wheel loads:
 | ξ_F | – | front share of the roll couple | 0.50 | 0.50 | 0.55 | 0.48 |
 | k_Bf | – | front share of brake force | 0.62 | 0.62 | 0.64 | 0.60 |
 | P_max | kW | peak drive power (rear wheel) | 88 | 104 | 250 | 116 |
-| C_dA | m² | drag area | 0.68 | 0.66 | 0.66 | 0.85 |
+| C_dA | m² | drag area (base body) | 0.68 | 0.66 | 0.66 | 0.85 |
 | C_lA | m² | lift (downforce) area | 0.0 | 0.0 | 0.0 | 0.5 |
 | aeroBal | – | front share of downforce | – | – | – | 0.40 |
+| C_dA,i | m² | lift-induced drag area (from C_lA) | – | – | – | 0.015 |
 | C_rr | – | rolling resistance | 0.012 | 0.012 | 0.011 | 0.012 |
 | µ | – | tyre friction coefficient | 1.80 | 1.82 | 1.30 | 1.75 |
 | ayFrac | – | driver share of the lateral budget | 0.96 | 0.97 | 0.95 | 0.92 |
