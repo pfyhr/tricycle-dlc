@@ -138,12 +138,22 @@ rear-only and additionally capped by engine power `P/u`; brakes split `kBf` to t
 
 ### Loads and aero
 
-Static axle loads from the weight split; downforce `F_down = ½ρ·C_lA·u²` divided by `aeroBal`
-front/rear (the Clubman carries C_lA = 0.5 m²; sliders let you give any car up to 5 m²). The
-two load-transfer states relax toward `ξ_F·m·a_y·h/t_f` (front share of the roll couple) and
-`m·a_x·h/L` with their respective time constants — so a snap of steering or brakes takes
-~0.15–0.2 s to fully load the outside/front tyres, exactly the transient that punishes
-"stab-the-pedal" inputs.
+Static axle loads come from the weight split; on top of them sits **downforce**. `C_lA`
+is the **lift area** — the dimensionless lift coefficient times the reference area, the
+exact aerodynamic counterpart of the drag area `C_dA` — so the force is simply
+`F_down = ½ρ·C_lA·u²` in newtons, no separate area or coefficient to bookkeep. It is the
+honest single number for "how much wing". Calibrating intuition: the Clubman's wing +
+floor at `C_lA = 0.5 m²` make ~0.23 kN at 100 km/h and ~0.9 kN at 200 km/h (16 % of the
+car's weight); the slider maximum of 5 m² is formula-car territory — ~9 kN at 200 km/h,
+more than an Elise weighs. In the model the downforce (i) splits `aeroBal` front/rear
+onto the axle loads, (ii) inflates the cornering budget with speed — the friction
+ellipse literally grows as you go faster, see the speed-reference section — and (iii) is
+not free: each m² of `C_lA` drags along +0.10 m² of `C_dA` (induced drag), which is why
+maxing the downforce slider visibly trims top speed. The two load-transfer states relax
+toward `ξ_F·m·a_y·h/t_f` (front share of the roll couple) and `m·a_x·h/L` with their
+respective time constants — so a snap of steering or brakes takes ~0.15–0.2 s to fully
+load the outside/front tyres, exactly the transient that punishes "stab-the-pedal"
+inputs.
 
 ### The driver: two channels, calibrated against real laps
 
