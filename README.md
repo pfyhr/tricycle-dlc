@@ -101,7 +101,11 @@ Path kinematics couple the chassis to the road: `ṡ = (u·cosΔψ − v_y·sin�
 slip angles (they differ by the yaw-rate term `± r·t_f/2` in the velocity at each contact
 patch), their own normal loads, and their own aligning moments — which is why lateral load
 transfer genuinely costs front grip and the car pushes when loaded. The rear axle is one
-lumped wheel.
+lumped wheel. Load transfer acts in both axes: the lateral state splits the front pair
+across the track width, and the longitudinal state shifts `m·a_x·h/L` between the axles —
+braking loads the front axle (that extra front grip is what makes trail-braking rotate the
+car, while the lightened rear is why the brake split `kBf` matters), and acceleration
+plants the driven rear (RWD traction on corner exit).
 
 ### Tyres: analytic brush model
 
