@@ -57,6 +57,10 @@ os.makedirs(SVG, exist_ok=True)
 # ---- vehicle setup (the car's profile params; the same car is pushed to the plant
 # via -override below, so the simulated tyre/mass/power match the line we build) ------
 SETUP = dict(cfg['profile'])
+# budget the grip the plant actually sustains, like the live sim's JS profile does
+# (GRIP_DERATE there): without it the calibrated high-mu cars get a reference ~10%
+# hotter than the plant can hold and run wide of the line
+SETUP['ayFrac'] *= 0.90
 LAP_VARS = ('time|s|n|vKmh|vRefKmh|ayG|axG|deltaDeg|dpsiDeg|yawRateDegS|betaDeg|'
             'FtieL|FtieR|FxR|Pdrive|FzFL|FzFR')
 
@@ -140,8 +144,8 @@ print(f'{DISPLAY} ({tag}): centerline L = {LTRK:.0f} m, path {pathLen:.0f} m; '
 # ---- 2. simulate -------------------------------------------------------------------
 override = override_string(cfg, LTRK, vRef[0])
 mos = (f'loadModel(Modelica); loadFile("Tricycle.mo");\n'
-       f'simulate(Tricycle.Examples.TrackLap, stopTime=900, '
-       f'numberOfIntervals=18000, outputFormat="csv", variableFilter="{LAP_VARS}", '
+       f'simulate(Tricycle.Examples.TrackLap, stopTime=900, method="rungekutta", '
+       f'numberOfIntervals=150000, outputFormat="csv", variableFilter="{LAP_VARS}", '
        f'fileNamePrefix="build/{STEM}_lap", '
        f'simflags="{override}"); getErrorString();\n')
 open('/tmp/trike_nslap.mos', 'w').write(mos)

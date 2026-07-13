@@ -35,7 +35,7 @@ def _car(display, m, Pmax, CdA, Crr, rho, mu, ayFrac, hcg, a, b,
                    c1F=c1F, c1R=c1R, c2F=c2F, c2R=c2R,
                    FzNomF=FzNomF, FzNomR=FzNomR, ap0F=ap0F, ap0R=ap0R,
                    ClA=ClA, aeroBal=aeroBal),
-        driver=dict(Lwb=a + b, Kus=Kus, KLA=KLA, Kr=Kr),
+        driver=dict(Lwb=a + b, Kus=Kus, KLA=KLA, Kr=Kr, mu=mu),
     )
 
 

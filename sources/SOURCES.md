@@ -27,3 +27,4 @@ are listed in the `Tricycle.PlanarTricycle` documentation annotation and the REA
 A deferred calibration: raising rear c1 to 1.7e5 would move the tires-only understeer
 gradient from 0.96 to ≈1.5 deg/g, defensible as a Pacejka *effective axle
 characteristic* absorbing the omitted compliance/roll-steer understeer.
+

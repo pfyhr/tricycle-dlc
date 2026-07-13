@@ -1,17 +1,18 @@
-# tricycle-dlc
+# kerbhopping
 
-![tests](https://github.com/pfyhr/tricycle-dlc/actions/workflows/ci.yml/badge.svg)
+![tests](https://github.com/pfyhr/kerbhopping/actions/workflows/ci.yml/badge.svg)
 
-Minimal, defensible **planar vehicle model** built around two questions: the tire forces
-that reach the suspension links and steering arm through a traditional **unassisted
-rack-and-pinion** during an **ISO 3888-1 double lane change**, and the **minimum-time lap**
-of a real circuit. The model is Modelica (OpenModelica); a faithful JavaScript port runs the
-whole thing — plant, driver and speed profile — **live in your browser**, and the headline
-cars are **calibrated against real GPS+IMU lap telemetry** from Ring Knutstorp.
+A **live track-driving simulator** built on a minimal, defensible **planar vehicle
+model**: per circuit a **minimum-time racing line** (CasADi/IPOPT optimal control) that you
+can watch, race and re-tune in your browser, with the headline cars **calibrated against
+real GPS+IMU lap telemetry** from Ring Knutstorp. The physics is a faithful JavaScript port
+of an OpenModelica model. The project began as a study of ISO 3888-1
+double lane changes — that study lives on further down, and its plant is where the
+"tricycle" got its name.
 
 ## Live simulator
 
-**→ [pfyhr.github.io/tricycle-dlc](https://pfyhr.github.io/tricycle-dlc/)** — runs in the
+**→ [pfyhr.github.io/kerbhopping](https://pfyhr.github.io/kerbhopping/)** — runs in the
 browser, nothing to install.
 
 ![Live in-browser simulator](outputs/live_sim.png)
@@ -36,10 +37,47 @@ self-contained `outputs/index.html`, published to GitHub Pages on every push to 
 
 ## The vehicle model (what actually runs in your browser)
 
-Everything below lives in `webgui_template.html` as ~120 lines of physics — a faithful port
-of the Modelica `Track.TrackTricycle` plant (see the next section for its origin), integrated
-with fixed-step **RK4 at dt = 6 ms**. A full lap is ~12 000 steps and solves in a few
+Everything below lives in `webgui_template.html` as ~160 lines of physics — a faithful port
+of the Modelica `Track.TrackTricycle` plant (**[validated below](#is-the-port-faithful)**;
+see the [Modelica origin chapter](#modelica-origin-the-double-lane-change-study) for its
+heritage), integrated with fixed-step **RK4 at dt = 6 ms**. A full lap is ~12 000 steps and solves in a few
 milliseconds, which is what makes live re-tuning and real-time driving free.
+
+The control structure at a glance — every block below exists identically in the Modelica
+plant and the JS port:
+
+```mermaid
+flowchart LR
+  T["<b>baked per-track tables</b><br/>racing line: n_ref, psi_ref,<br/>kappa_line, delta_FF<br/>speed profile: v_ref(s)"]
+  subgraph D["driver — one law in both plants"]
+    FF["steer feedforward<br/>(L + K_us u^2)*kappa_line + delta_FF<br/>read u*0.6 s ahead"]
+    FB["lookahead feedback: -g_hi*K_LA*e_LA<br/>e_LA = (n - n_ref) + x_LA*(dpsi - psi_ref)<br/>x_LA capped, gain knee g_hi"]
+    DM["yaw damper<br/>-K_r*(r - kappa_line*u)"]
+    ST["sum, tanh clamp +/-20 deg"]
+    SP["speed preview<br/>(v_ref(s + u*1s)^2 - u^2)/(2 u*1s)"]
+    BT["far-horizon brake trigger<br/>commit band ~0.4 mu g x g_hi, brake x1.25,<br/>friction-circle shares, hold-speed floor"]
+    FF --> ST
+    FB --> ST
+    DM --> ST
+    SP --> BT
+  end
+  subgraph P["plant — 9-state tricycle"]
+    AC["steer actuator<br/>tau = 0.10 s"]
+    AL["force allocation<br/>power cap P/u, brake split k_Bf,<br/>friction-ellipse remainder"]
+    TY["brush tyres FL / FR / rear<br/>(Pacejka ch. 3)"]
+    LT["load-transfer lags<br/>roll 0.15 s, pitch 0.20 s"]
+    CH["chassis + Frenet kinematics<br/>states s, n, dpsi, u, v_y, r"]
+    AC --> TY
+    AL --> TY
+    LT --> TY
+    TY --> CH
+    CH --> LT
+  end
+  T --> FF & FB & SP & BT
+  ST -- "delta_cmd" --> AC
+  BT -- "a_x,cmd" --> AL
+  CH -- "state feedback: s, n, dpsi, u, v_y, r" --> FB & DM & SP & BT
+```
 
 ### Plant: 9 states, three wheels
 
@@ -63,12 +101,17 @@ Path kinematics couple the chassis to the road: `ṡ = (u·cosΔψ − v_y·sin�
 slip angles (they differ by the yaw-rate term `± r·t_f/2` in the velocity at each contact
 patch), their own normal loads, and their own aligning moments — which is why lateral load
 transfer genuinely costs front grip and the car pushes when loaded. The rear axle is one
-lumped wheel.
+lumped wheel. Load transfer acts in both axes: the lateral state splits the front pair
+across the track width, and the longitudinal state shifts `m·a_x·h/L` between the axles —
+braking loads the front axle (that extra front grip is what makes trail-braking rotate the
+car, while the lightened rear is why the brake split `kBf` matters), and acceleration
+plants the driven rear (RWD traction on corner exit).
 
 ### Tyres: analytic brush model
 
-Each wheel runs the Pacejka **brush** model (Tyre and Vehicle Dynamics, ch. 3), which is
-smooth, event-free and cheap:
+Each wheel runs the classic **brush** tyre model (the analytic form of Pacejka, Tyre and
+Vehicle Dynamics ch. 3) — smooth, event-free, cheap, and the same expressions to the last
+epsilon in the Modelica plant and the JS port:
 
 - cornering stiffness with degressive load sensitivity: `C_α(F_z) = c1·sin(2·atan(F_z/c2))` —
   doubling the load less-than-doubles the stiffness, so transferring load across an axle
@@ -78,18 +121,39 @@ smooth, event-free and cheap:
 - aligning moment from a pneumatic trail `a_p(F_z) = a_p0·√(F_z/F_znom)` that collapses to
   zero at the limit — the steering "goes light" exactly when the front axle saturates.
 
+These are the exact Chapter-3 forms — `λ = 1 − θ|σ|` (3.8), `F_y = µF_z(1 − λ³)` (3.11),
+`M_z = −µF_z·a·λ³(1 − λ)` (3.12), trail `t₀ = a/3` at vanishing slip (3.14) — with
+Pacejka's Magic-Formula load function supplying the `C_α(F_z)` that Chapter 3 keeps
+constant. The calibrated Elise's tyres, plotted in those conventions (`tyre_curves.py`):
+
+![Elise brush-tyre characteristics](outputs/svg/elise_tyres.svg)
+
+Left: the load sensitivity that makes lateral transfer cost front grip. Middle: the
+aligning-moment dip. Right: the pneumatic trail falling from a/3 toward zero as the
+contact patch saturates — the "steering goes light" signal a driver feels at the limit.
+
 Longitudinal force is allocated *after* lateral: the drive/brake demand is clipped per axle by
 the **friction-ellipse remainder** `√((µF_z)² − F_y²)` — an idealized TC/ABS. Drive is
 rear-only and additionally capped by engine power `P/u`; brakes split `kBf` to the front axle.
 
 ### Loads and aero
 
-Static axle loads from the weight split; downforce `F_down = ½ρ·C_lA·u²` divided by `aeroBal`
-front/rear (the Clubman carries C_lA = 0.5 m²; sliders let you give any car up to 5 m²). The
-two load-transfer states relax toward `ξ_F·m·a_y·h/t_f` (front share of the roll couple) and
-`m·a_x·h/L` with their respective time constants — so a snap of steering or brakes takes
-~0.15–0.2 s to fully load the outside/front tyres, exactly the transient that punishes
-"stab-the-pedal" inputs.
+Static axle loads come from the weight split; on top of them sits **downforce**. `C_lA`
+is the **lift area** — the dimensionless lift coefficient times the reference area, the
+exact aerodynamic counterpart of the drag area `C_dA` — so the force is simply
+`F_down = ½ρ·C_lA·u²` in newtons, no separate area or coefficient to bookkeep. It is the
+honest single number for "how much wing". Calibrating intuition: the Clubman's wing +
+floor at `C_lA = 0.5 m²` make ~0.23 kN at 100 km/h and ~0.9 kN at 200 km/h (16 % of the
+car's weight); the slider maximum of 5 m² is formula-car territory — ~9 kN at 200 km/h,
+more than an Elise weighs. In the model the downforce (i) splits `aeroBal` front/rear
+onto the axle loads, (ii) inflates the cornering budget with speed — the friction
+ellipse literally grows as you go faster, see the speed-reference section — and (iii) is
+not free: each m² of `C_lA` drags along +0.10 m² of `C_dA` (induced drag), which is why
+maxing the downforce slider visibly trims top speed. The two load-transfer states relax
+toward `ξ_F·m·a_y·h/t_f` (front share of the roll couple) and `m·a_x·h/L` with their
+respective time constants — so a snap of steering or brakes takes ~0.15–0.2 s to fully
+load the outside/front tyres, exactly the transient that punishes "stab-the-pedal"
+inputs.
 
 ### The driver: two channels, calibrated against real laps
 
@@ -100,15 +164,31 @@ steer** passed through as a dynamic feedforward, minus lookahead-error feedback
 `x_LA = 5 m + 0.25·u` ahead (capped at u = 38 m/s). The feedback gain rolls off above a
 speed knee (u ≈ 43 m/s) — quick hands don't work at 200 km/h, and without the rolloff the
 wheel saws on fast straights. A yaw-damping term `K_r·(r − κ·u)` and a `tanh` saturation at
-the 20° steering stop close the loop; the command then passes through the 0.10 s actuator.
+the 20° steering stop close the loop. The command then drives the road wheel through a
+first-order **actuator**, `τ·δ̇ + δ = δ_cmd` with τ = 0.10 s (state 7 of the plant) — the
+lumped driver-arm-plus-linkage response: a step command reaches 63 % in 0.1 s, during
+which the car covers 4–6 m at corner speeds. It is the dominant lag in the steering loop —
+the speed-growing lookahead's phase lead exists precisely to compensate it — and it
+low-passes the feedback before it reaches the tyres, which is why gains that are stable
+here start ringing the moment a second lag (tyre relaxation) is added to the loop.
 
-**Pedals** follow the reference speed with a ~1 s preview, but braking for a corner beyond
-the preview is an **onset trigger, not a plan**: the far horizon watches the kinematic
-deceleration needed for every point ~2 s ahead, and only when that need reaches ~0.4 µg does
-the driver commit — then brakes ~25 % *harder* than kinematically necessary, trailing off as
-the planned path curvature claims its share of the friction circle. This late-hard shape came
-straight from the logged laps (real braking p90 = 0.90 g; an earlier spread-out horizon
-never exceeded 0.6 g and gave laps 5 s too slow). Symmetrically, the throttle gets no more
+**Pedals** track the reference speed through a ~1 s preview:
+`a_x = (v_ref(s + u·1s)² − u²)/(2·u·1s)`, a constant-acceleration law that reproduces the
+profile's own acceleration when the car is exactly on it and self-corrects when it is not.
+Corners beyond that window are watched by a **far horizon** — every 6 m out to ~2.2 s
+ahead, each point's kinematic need `a(d) = (v_ref(s+d)² − u²)/(2d)`, i.e. the constant
+braking that would *just* meet it. The crucial distinction is what to do with that number.
+A **plan** brakes at the worst need as soon as any point needs anything — a feather-light
+brake from 100 m out, ramping gently: that was the original implementation, it never
+exceeded 0.6 g, and it lapped 5 s slower than the logs. A **trigger** instead holds speed
+(right foot down, no lift) while the need grows as the corner approaches — the need rises
+roughly as 1/d — and only when it climbs into a smooth commit band around **0.4 µg**
+(scaled down by the steering-gain knee where the hands are slow) does the driver commit:
+braking ~25 % *harder* than the kinematic need, keeping reserve for the turn-in transient,
+then trailing off as the planned path curvature claims its share of the friction circle.
+The band is smooth rather than a hard threshold because a threshold chatters — the need
+hovers at the boundary and the foot stabs (measured: bursts of 0.13 s brake applications).
+This late-hard shape came straight from the logged laps (real braking p90 = 0.90 g). Symmetrically, the throttle gets no more
 than the friction-circle remainder of the *worse* of planned curvature and measured `|r|·u` —
 no full power until the car is unwound, which is what keeps corner-exit power-on understeer
 from running the car wide. Where the steering gain has rolled off, the driver also carries a
@@ -139,12 +219,12 @@ are the known car specs; the fit adjusted tyre µ and the used lateral budget.
 
 | | real (logged) | simulated |
 |---|--:|--:|
-| Lotus Elise best lap, Knutstorp | **1:09.5** | 1:10.1 |
-| Mazda MX-5 best lap, Knutstorp | **1:08.0** | 1:09.1 |
+| Lotus Elise best lap, Knutstorp | **1:09.5** | 1:10.0 |
+| Mazda MX-5 best lap, Knutstorp | **1:08.0** | 1:09.0 |
 | sustained lateral (p99) | 1.62 / 1.67 g | ~1.5 g |
 | braking (p90) | 0.90 g | ~0.7 g |
 | top speed on track | 163 / 167 km/h | 169 / 173 km/h |
-| speed-trace error v(s), rms | — | 9.2 km/h |
+| speed-trace error v(s), rms | — | 7.6 km/h |
 
 The remaining ~0.5-1 s sits in the line model, not the car: the sim's track has no kerbs to cut
 and its driver keeps a small tracking margin a professional would not. The four cars:
@@ -160,56 +240,51 @@ When you **drive yourself** (arrow keys / WASD / touch), the same plant runs wit
 steer and pedal inputs replacing the driver law — plus a soft-ground penalty (rolling drag
 up, grip trimmed) once you put wheels past the white line.
 
-## Modelica origin: the double-lane-change study
+### Is the port faithful?
 
-`modelica/Tricycle.mo` (single-file Modelica package, simulated with OpenModelica):
+Claim tested, not assumed: `port_validation.py` takes the baked Knutstorp tables and the
+Elise's reference speed straight out of the built page, laps the **OpenModelica**
+`TrackTricycle` on them, and laps the **JavaScript** plant on the identical inputs. The
+driver is ONE law in both plants — the telemetry-calibrated steering (lookahead cap,
+high-speed gain knee) and pedals (late-hard brake commit, friction-circle shares,
+hold-speed-to-the-braking-point) were developed in the JS against the live sim and
+telemetry, then backported to the Modelica `TrackDriver`; the track plant runs
+relaxation-free by default to match the port (a `relaxOn` switch restores it — with it
+on, the same driver gains ring at high speed, which is how the two loop dynamics were
+shown to agree in the first place).
 
-- **`PlanarTricycle`** — planar three-wheel ("tricycle") vehicle: individual front
-  wheels (own slip angles, quasi-static lateral load transfer with a roll-mode lag),
-  lumped rear wheel — the architecture used for front-axle force estimation in
-  WO 2025/113783 (Marzbanrad & Jonasson, Volvo). Chassis: 2 DOF (lateral velocity, yaw
-  rate) at constant speed + path kinematics. Kingpin moment per side =
-  Fy·(mechanical trail) − Mz; tie-rod force = M_kp/L_arm. `toeL`/`toeR` inputs are
-  hooks for an active-toe actuator (wired to 0 here).
-- **`TireData` / `brushForces`** — Pacejka brush tire (Tire and Vehicle Dynamics,
-  Ch. 3): analytic Fy(α, Fz) and Mz(α, Fz) with a pneumatic trail that starts at
-  a_p/3 ≈ 20 mm and collapses to zero at the grip limit; degressive load sensitivity;
-  first-order relaxation lag. Smooth and event-free.
-- **`ManualSteering`** — handwheel/column inertia + ideal pinion
-  (r_p = L_arm/i_S, i_S = 20 typical for unassisted steering) + rack mass. No assist:
-  the full kingpin reaction reflects to the handwheel, τ_HW = F_rack·r_p.
-- **`Iso3888Path`** — ISO 3888-1 reference centerline (sections 15/30/25/25/15/15 m,
-  3.5 m offset, 125 m total) + MacAdam-class single-point preview driver with yaw-rate
-  damping. The driver turns the handwheel through a 2 Hz arm filter.
-- **Examples** — `StepSteer` (understeer validation), `DoubleLaneChange` (headline,
-  closed-loop at the ISO-recommended 80 km/h), `OpenLoopDLC` (prescribed one-period
-  sine, repeatable sweeps).
+![Port validation: Modelica vs JS, same car, same line](outputs/svg/port_validation.svg)
 
-![Double lane change animation](outputs/gif/dlc_anim.gif)
+Lap time **70.0 s vs 70.0 s (Δ0.1 s)**; over the full lap the speed traces agree to
+**0.3 km/h rms**, the road-wheel steer to **0.39° rms**, and the driven line to
+**0.05 m rms** — the two curves are indistinguishable at plot scale.
 
-*Closed-loop ISO 3888-1 double lane change at 80 km/h (real-time playback): vehicle
-outline at true yaw with the running time, heading and lateral-acceleration readout.
-The distance axis is compressed 2:1; gate compliance is checked on the true footprint.*
+The third trace in the lap figure is the **real lap** (69.5 s): the logged GPS is
+rigidly fitted onto the track frame (the driven lap *is* the track, so three closest-point Procrustes rounds
+recover the projection), giving the real speed *and the real driven line* on the same
+s-axis. The real speed matches the sims corner-for-corner — and shows exactly where the
+sim line is still conservative (the fast left at s ≈ 950 where the real driver carries
+~15 km/h more). The real line swings the same apex pattern with slightly more amplitude
+(kerbs). One honest footnote: the fit also *measures* the OSM centerline's own lateral
+error — a slowly varying **~3 m mean bias (10 m worst)** that the whole track frame
+inherits; it is removed (100 m high-pass, labeled) before the line comparison, and it
+means the logged laps could eventually be used to *correct* the track geometry itself.
 
-## Headline results (defaults: D-segment sedan, 80 km/h)
+And the origin story closes its loop: both plants driving the **ISO 3888-1 double lane
+change** the project began with — same Elise, same driver law, the JavaScript car drawn as
+a translucent ghost over the Modelica one (`port_dlc.py`):
 
-| Quantity | Value |
-|---|---|
-| ISO 3888-1 gates (full-footprint check) | PASS, margins +91/+68/+151 mm |
-| Peak lateral acceleration | 0.76 g |
-| Peak tie-rod force | ≈ 1.4 kN per side (left/right split by load transfer) |
-| Peak kingpin moment | ≈ 150 N·m per wheel |
-| Peak handwheel angle / torque | ≈ 110° / **10 N·m** (unassisted!) |
-| Understeer gradient (tires-only) | 0.96 deg/g — low edge of the production band, as expected with compliance/roll steer omitted |
+![Both plants, same double lane change, JS as ghost](outputs/gif/port_dlc.gif)
 
-Note the driver tuning (Tp = 0.55 s, Kdrv = 0.22, Kr = 0.25) is deliberately slow and
-well damped: the 2 Hz arm filter adds phase lag that the preview must compensate, and
-tighter tunings destabilize the driver–steering loop — a genuine interaction, not a
-numerical artifact.
+The two cars move as one — peak CG separation over the whole maneuver is **3 mm**:
+
+![CG trajectory, both plants](outputs/svg/port_dlc_traj.svg)
 
 ## Track sim: minimum-time laps of planar circuits
 
-The `Tricycle.Track` sub-package re-expresses the tricycle in **track (Frenet)
+The `Tricycle.Track` sub-package of the Modelica model (`modelica/Tricycle.mo`; the
+package's origin is the [DLC study below](#modelica-origin-the-double-lane-change-study))
+re-expresses the tricycle in **track (Frenet)
 coordinates** (s, n, Δψ) and adds a **longitudinal degree of freedom**: rear-wheel
 drive limited by engine power (P_max/u) and by the rear friction-ellipse remainder
 √((μF_z)² − F_y²), brakes split front/rear under the same per-axle ellipse limit
@@ -225,34 +300,35 @@ much as the asphalt allows — is computed by a fast regularized solve
 (`tracks/racing_line.py`; Braghin et al. 2008, Heilmeier et al. 2020). The
 quasi-steady minimum-time speed profile v_ref(s) is then recomputed *on that faster
 line* (corner-speed limit → power/traction-limited forward pass → braking-limited
-backward pass), and the two-channel `TrackDriver` tracks it. Steering is a
-feedforward–feedback law (Kapania & Gerdes 2015): a steer feedforward (line curvature
-with an understeer term, plus the OCP line's dynamic steer where available) plus
-**lookahead-error feedback** — the path error e_la = (n − n_ref) + x_LA·(Δψ − ψ_ref)
-evaluated a speed-scaled distance x_LA = x_LA0 + T_LA·v ahead, whose built-in phase
-lead lets one fixed gain hold the line to the grip limit without gain-scheduling —
-with yaw-rate damping. Throttle/brake is a preview-consistent constant-acceleration
-law. Setting the corridor to zero recovers exact centerline following, so the same
-driver does both (`track_lap.py --line=center`).
+backward pass, budgeted at the grip the plant actually sustains), and the two-channel
+`TrackDriver` tracks it — **the same unified driver described in
+[the model chapter](#the-driver-two-channels-calibrated-against-real-laps)**: the
+Kapania–Gerdes lookahead steering (one fixed gain carried by the speed-scaled
+lookahead's phase lead, now with the capped lookahead and high-speed gain knee the
+telemetry work added) and the pedal channel with its late-hard brake trigger and
+friction-circle shares. Setting the corridor to zero recovers exact centerline
+following, so the same driver does both (`track_lap.py --line=center`).
 
 This is a genuine racing line — wide entry, apex, track-out — but the
 minimum-curvature line for a fixed corridor, *not* a provably minimum-time trajectory
 (see "How optimal is it?" below).
 
-Lap times for the default setup (150 kW / 1650 kg / μ = 0.95), racing line vs.
-centerline following:
+Lap times for the telemetry-calibrated Elise (862 kg / 88 kW / µ = 1.80,
+`--car=elise`), racing line vs. centerline following:
 
 | Track (`--track=`) | Length | Racing line | Centerline | v_max |
 |---|--:|--:|--:|--:|
-| `nordschleife` — Nürburgring Nordschleife | 20.72 km | **10:39.9** | 11:04.0 | 230 km/h |
-| `anderstorp` — Anderstorp Raceway | 4.01 km | **2:15.1** | 2:20.8 | 178 km/h |
-| `gelleras` — Gelleråsen Arena (Karlskoga) | 2.33 km | **1:35.8** | 1:40.4 | 160 km/h |
-| `knutstorp` — Ring Knutstorp | 2.06 km | **1:29.2** | 1:33.4 | 160 km/h |
-| `kinnekulle` — Kinnekulle Ring | 2.06 km | **1:15.1** | 1:19.2 | 164 km/h |
+| `nordschleife` — Nürburgring Nordschleife | 20.72 km | **8:48.4** | 9:20.7 | 202 km/h |
+| `anderstorp` — Anderstorp Raceway | 4.01 km | **1:54.9** | 1:59.9 | 189 km/h |
+| `gelleras` — Gelleråsen Arena (Karlskoga) | 2.33 km | **1:17.6** | 1:23.5 | 173 km/h |
+| `knutstorp` — Ring Knutstorp | 2.06 km | **1:11.5** | 1:17.1 | 169 km/h |
+| `kinnekulle` — Kinnekulle Ring | 2.06 km | **1:02.1** | 1:05.6 | 170 km/h |
 
-The racing line is 3.5–5 % quicker, and the car tracks it to within ~0.8 m rms.
+The racing line is 4–7 % quicker, and the car tracks it to within ~1.2 m rms.
+(These are the geometric min-curvature lines; the live simulator runs the OCP
+min-time lines below, which is why its Knutstorp lap is a second faster still.)
 
-![Nordschleife racing line colored by speed](outputs/svg/tourer_ns_map.svg)
+![Nordschleife racing line colored by speed — Elise, OCP line](outputs/elise_ns_map.png)
 
 ```
 python3 tracks/fetch_track.py --track=all         # (re)build centerlines from OSM - needs network
@@ -262,6 +338,8 @@ python3 track_render.py --track=knutstorp         # chase-camera HTML viewer (ou
                                                   # GTA-style follow cam, minimap, speed/yaw/accel HUD
 python3 build_webgui.py                           # build the live browser simulator (outputs/index.html):
                                                   # JS port of plant+driver, all five tracks, live tuning
+python3 port_validation.py                        # faithfulness check: Modelica vs JS, same car+line
+                                                  # (outputs/svg/port_validation.svg)
 ```
 
 Adding a track is one entry in the `TRACKS` registry in `tracks/fetch_track.py`
@@ -284,7 +362,7 @@ for a 3-DOF planar vehicle** (`tracks/opt_lap.py`; the min-curvature line warm-s
   the friction ellipse as an inequality F_x²+F_y² ≤ (μF_z)², the engine-power limit
   F_x·u ≤ P, quasi-static load transfer, and the track corridor;
 - transcribed by direct collocation into one nonlinear program and solved with
-  [CasADi](https://web.casadi.org/) + IPOPT (L-BFGS Hessian, ~30 s/track). The KKT
+  [CasADi](https://web.casadi.org/) + IPOPT (L-BFGS Hessian, ~30 s per short track, minutes for the Nordschleife). The KKT
   conditions certify **local** optimality (nonconvex — no global guarantee).
 
 This follows the standard minimum-lap-time formulation (Perantoni & Limebeer 2014; the
@@ -296,15 +374,16 @@ actually hold — not a weaving trajectory that only a point mass could follow.
 The full Modelica `TrackTricycle` then **drives** this line (the OCP chooses the line;
 OpenModelica simulates the real car tracking it), realized by the lookahead-error driver
 above. Two things make that tracking work: the OCP's own optimal steer is passed through
-as a dynamic feedforward, and the corridor is **speed-dependent** — pulled in from the
-edge where the car is fast (it runs wider on exit the faster it goes), so the aggressive
-line stays on the asphalt.
+as a dynamic feedforward, and the corridor and driver margins are **lateral-demand
+scaled** — pulled in only where the car is both fast *and* loaded (overshoot needs speed
+and lateral force; a flat-out straight tracks exactly), so the aggressive line stays on
+the asphalt while entries still use the full width.
 
 Honest caveats:
 
 1. **Optimal for a reduced model.** The 3-DOF single-track OCP omits the left/right load
-   transfer, tyre relaxation lag and steering actuator lag the full plant has — exactly
-   what the plant adds back when it drives the line. `T_opt` is the 3-DOF optimum, a
+   transfer and the steering actuator lag the full plant has — exactly what the plant
+   adds back when it drives the line. `T_opt` is the 3-DOF optimum, a
    close lower estimate, not a bound on the full car.
 2. **Local, not global.** IPOPT certifies a KKT point, not the absence of a better basin.
 3. **It helps most where the corners are slow and tight.** On flowing high-speed tracks
@@ -315,20 +394,70 @@ Result — driven laps (full model tracking each line), `T_opt` = the 3-DOF opti
 
 | Track | Min-curvature | OCP-tracked | Δ | `T_opt` (3-DOF) |
 |---|--:|--:|--:|--:|
-| Knutstorp | 1:29.2 | **1:25.3** | −3.9 s | 1:18.9 |
-| Gelleråsen | 1:35.8 | **1:31.4** | −4.4 s | 1:24.7 |
-| Anderstorp | 2:15.1 | **2:11.5** | −3.6 s | 2:05.4 |
-| Kinnekulle | 1:15.1 | 1:16.1 | +1.0 s | 1:09.3 |
-| Nordschleife | 10:39.9 | 10:39.8 | ≈ tie | 9:04.9 |
+| Knutstorp | 1:11.5 | **1:11.0** | −0.5 s | 1:04.9 |
+| Gelleråsen | 1:17.6 | **1:17.0** | −0.6 s | 1:10.6 |
+| Anderstorp | 1:54.9 | **1:52.8** | −2.1 s | 1:46.4 |
+| Kinnekulle | 1:02.1 | **1:00.9** | −1.2 s | 0:56.8 |
+| Nordschleife | 8:48.4 | 9:00.7 | +12.3 s | 8:01.3 |
 
-The OCP line is 3–4 s quicker on the technical circuits (Knutstorp, Gelleråsen,
-Anderstorp) and about even on the fast, flowing ones (Kinnekulle, Nordschleife), tracked
-to ~0.7–1.0 m rms.
+(Elise, same setup as the table above.) The OCP line wins on every circuit except the
+Nordschleife, where the aggressive min-time line through the 200 km/h sections outruns
+what the driver can track through `track_lap`'s plain corridor — the live simulator
+solves exactly this with per-track, lateral-demand-scaled driver margins, which is why
+its Nordschleife laps use the OCP line and still stay on the kerbs. Tracked to
+~1.0–1.3 m rms.
 
 The OCP needs CasADi (`pip install casadi`, bundles IPOPT); `--line=optimal`
 (min-curvature) remains the dependency-free default.
 
-## Run
+## Modelica origin: the double-lane-change study
+
+`modelica/Tricycle.mo` (single-file Modelica package, simulated with OpenModelica):
+
+- **`PlanarTricycle`** — planar three-wheel ("tricycle") vehicle: individual front
+  wheels (own slip angles, quasi-static lateral load transfer with a roll-mode lag),
+  lumped rear wheel — the architecture used for front-axle force estimation in
+  WO 2025/113783 (Marzbanrad & Jonasson, Volvo). Chassis: 2 DOF (lateral velocity, yaw
+  rate) at constant speed + path kinematics. Kingpin moment per side =
+  Fy·(mechanical trail) − Mz; tie-rod force = M_kp/L_arm. `toeL`/`toeR` inputs are
+  hooks for an active-toe actuator (wired to 0 here).
+- **`TireData` / `brushForces`** — classic brush tire (analytic form after Pacejka,
+  Tire and Vehicle Dynamics Ch. 3): analytic Fy(α, Fz) and Mz(α, Fz) with a pneumatic trail that starts at
+  a_p/3 ≈ 20 mm and collapses to zero at the grip limit; degressive load sensitivity;
+  first-order relaxation lag. Smooth and event-free.
+- **`ManualSteering`** — handwheel/column inertia + ideal pinion
+  (r_p = L_arm/i_S, i_S = 20 typical for unassisted steering) + rack mass. No assist:
+  the full kingpin reaction reflects to the handwheel, τ_HW = F_rack·r_p.
+- **`Iso3888Path`** — ISO 3888-1 reference centerline (sections 15/30/25/25/15/15 m,
+  3.5 m offset, 125 m total) + MacAdam-class single-point preview driver with yaw-rate
+  damping. The driver turns the handwheel through a 2 Hz arm filter.
+- **Examples** — `StepSteer` (understeer validation), `DoubleLaneChange` (headline,
+  closed-loop at the ISO-recommended 80 km/h), `OpenLoopDLC` (prescribed one-period
+  sine, repeatable sweeps).
+
+![Double lane change animation](outputs/gif/dlc_anim.gif)
+
+*Closed-loop ISO 3888-1 double lane change at 80 km/h (real-time playback): vehicle
+outline at true yaw with the running time, heading and lateral-acceleration readout.
+The distance axis is compressed 2:1; gate compliance is checked on the true footprint.*
+
+### DLC headline results (defaults: D-segment sedan, 80 km/h)
+
+| Quantity | Value |
+|---|---|
+| ISO 3888-1 gates (full-footprint check) | PASS, margins +91/+68/+151 mm |
+| Peak lateral acceleration | 0.76 g |
+| Peak tie-rod force | ≈ 1.4 kN per side (left/right split by load transfer) |
+| Peak kingpin moment | ≈ 150 N·m per wheel |
+| Peak handwheel angle / torque | ≈ 110° / **10 N·m** (unassisted!) |
+| Understeer gradient (tires-only) | 0.96 deg/g — low edge of the production band, as expected with compliance/roll steer omitted |
+
+Note the driver tuning (Tp = 0.55 s, Kdrv = 0.22, Kr = 0.25) is deliberately slow and
+well damped: the 2 Hz arm filter adds phase lag that the preview must compensate, and
+tighter tunings destabilize the driver–steering loop — a genuine interaction, not a
+numerical artifact.
+
+### Run the Modelica pipeline
 
 ```
 python3 dlc_maneuver.py      # simulations, figures (outputs/svg), animation (outputs/gif), summary CSV
@@ -340,17 +469,30 @@ Requires OpenModelica (`omc` on PATH), Python 3 with numpy + matplotlib.
 Everything sweepable (speed, driver, steering ratio, tire and chassis parameters) is a
 top-level parameter of the examples, overridable per run via `-override=...`.
 
-## Validation
+### DLC validation (the study's original checks — still asserted in CI)
 
-- Steady-state yaw-rate gain matches the analytic linear bicycle *including aligning
-  moments* to < 1 % across 40–120 km/h:
+These were the project's first correctness checks, and they still run on every push;
+the [port-and-telemetry validation](#is-the-port-faithful) in the model chapter now sits
+above them, but they remain the anchor to closed-form theory:
+
+- **Against analytic theory**: steady-state yaw-rate gain matches the linear bicycle
+  *including aligning moments* to < 1 % across 40–120 km/h — the classic
+  understeer-gradient check, model vs closed form:
 
   ![Yaw-rate gain vs speed](outputs/svg/dlc_understeer.svg)
 
-- A NumPy twin of the brush tire is asserted against the Modelica steady state to
-  < 10⁻³ on every run of `dlc_maneuver.py`.
-- Gate compliance is checked on the full yawed vehicle footprint (all four corners),
-  matching the ISO "no cones displaced" intent.
+- **Across implementations**: a NumPy twin of the brush tire is asserted against the
+  Modelica steady state to < 10⁻³ on every run of `dlc_maneuver.py` (the same equations
+  now also live in the JS port, verified identical to ~10⁻¹³ N — the tyre-section curves
+  describe all three).
+- **Against the standard's intent**: ISO 3888-1 gate compliance is checked on the full
+  yawed vehicle footprint (all four corners) — "no cones displaced", not just the CG
+  between the lines.
+
+The full validation ladder, bottom to top: tyre equations identical across all three
+implementations → the two plants lap as one (0.05 m rms; 3 mm through this very
+maneuver) → the driver calibrated against logged laps (Δ0.5 s at Knutstorp) → the
+five-track regression suite in CI.
 
 ## Sources
 
@@ -361,10 +503,53 @@ Parameter provenance and reference anchors in `sources/SOURCES.md`
 
 ## Documented omissions
 
-Constant speed; parallel steer (no Ackermann); no KPI/caster jacking; no scrub×Fx;
-lumped rear tire (slightly understeer-optimistic; front link loads unaffected); no roll
-DOF (roll-mode lag on load transfer instead); no steering column compliance or rack
-friction; tire parameters are textbook-typical, not fitted to a specific tire.
+For the DLC study's `PlanarTricycle`: constant speed; parallel steer (no Ackermann); no
+KPI/caster jacking; no scrub×Fx; no steering column compliance or rack friction; its
+tire parameters are textbook-typical. Shared by both plants: lumped rear tire (slightly
+understeer-optimistic; front link loads unaffected); no roll DOF (roll-mode lag on load
+transfer instead); planar — no elevation, banking or kerbs. The track plant adds the
+longitudinal DOF and drops the constant-speed assumption, and the sim cars' tyre
+parameters are *not* textbook-typical: the Elise and MX-5 are fitted to logged laps
+(see the calibration section).
+
+## Appendix: car parameters
+
+Every number the plants use, per car (generated from `tracks/cars.py` by `car_table.py` —
+regenerate after preset changes). The four cars differ in far more than mass and power:
+yaw inertia spans 4× (Clubman 780 to M140i 2600 kg·m²), the Elise is the only
+rear-heavy one (38 % front), and the tyre stiffness/load scales are sized to each car's
+actual wheel loads:
+
+| parameter | unit | meaning | Lotus Elise | Mazda MX-5 "Oskar" | BMW M140i | Clubman Racer |
+|---|---|---|--:|--:|--:|--:|
+| m | kg | mass (incl. driver) | 862 | 980 | 1530 | 580 |
+| I_zz | kg·m² | yaw inertia | 1070 | 1300 | 2600 | 780 |
+| a / b | m | CG to front / rear axle | 1.43 / 0.87 | 1.15 / 1.15 | 1.29 / 1.40 | 1.20 / 1.20 |
+| L | m | wheelbase | 2.30 | 2.30 | 2.69 | 2.40 |
+| front weight | % | static front axle share = b/L | 38 | 50 | 52 | 50 |
+| t_f | m | front track width | 1.46 | 1.41 | 1.57 | 1.55 |
+| h_cg | m | CG height | 0.46 | 0.48 | 0.52 | 0.30 |
+| ξ_F | – | front share of the roll couple | 0.50 | 0.50 | 0.55 | 0.48 |
+| k_Bf | – | front share of brake force | 0.62 | 0.62 | 0.64 | 0.60 |
+| P_max | kW | peak drive power (rear wheel) | 88 | 104 | 250 | 116 |
+| C_dA | m² | drag area | 0.68 | 0.66 | 0.66 | 0.85 |
+| C_lA | m² | lift (downforce) area | 0.0 | 0.0 | 0.0 | 0.5 |
+| aeroBal | – | front share of downforce | – | – | – | 0.40 |
+| C_rr | – | rolling resistance | 0.012 | 0.012 | 0.011 | 0.012 |
+| µ | – | tyre friction coefficient | 1.80 | 1.82 | 1.30 | 1.75 |
+| ayFrac | – | driver share of the lateral budget | 0.96 | 0.97 | 0.95 | 0.92 |
+| c1F / c1R | N/rad | tyre stiffness scale, front wheel / lumped rear | 28000 / 92000 | 42000 / 84000 | 80000 / 150000 | 26000 / 52000 |
+| c2F / c2R | N | stiffness load scale (C_α = c1·sin(2·atan(F_z/c2))) | 1600 / 5250 | 2400 / 4800 | 3700 / 7300 | 1420 / 2840 |
+| F_z,nom F / R | N | nominal wheel loads (trail + contact length scale) | 1600 / 5250 | 2400 / 4800 | 3700 / 7300 | 1420 / 2840 |
+| a_p0 F / R | m | contact half-length at F_z,nom | 0.055 / 0.075 | 0.055 / 0.075 | 0.060 / 0.080 | 0.050 / 0.070 |
+| K_us | rad·s²/m | understeer gradient (steer FF) | 1.00e-3 | 1.20e-3 | 1.50e-3 | 0.80e-3 |
+| K_LA | rad/m | lookahead feedback gain (× KMUL 1.7) | 0.30 | 0.30 | 0.26 | 0.32 |
+| K_r | rad·s/rad | yaw damping gain | 0.60 | 0.60 | 0.60 | 0.60 |
+
+Global driver constants shared by all cars (see the driver section): KMUL = 1.7,
+lookahead x_LA = 5 m + 0.25·u capped at 38 m/s, gain knee 43 m/s (width 15), brake
+trigger 0.40 µg with ×1.25 commit, speed margin 0.08·(1−g_hi), steering actuator
+τ = 0.10 s, GRIP_DERATE = 0.90.
 
 ## License
 

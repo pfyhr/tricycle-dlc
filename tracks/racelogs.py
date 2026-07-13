@@ -86,12 +86,14 @@ def split_laps(d, tmin=30, tmax=900):
 
 
 def lap_trace(d, i0, i1):
-    """One lap -> dict(t0-based t, frac 0..1 by driven distance, v kmh, ax/ay g, length m)."""
+    """One lap -> dict(t0-based t, frac 0..1 by driven distance, v kmh, ax/ay g,
+    lat/lon [NMEA minutes], length m)."""
     t = d['t'][i0:i1+1] - d['t'][i0]
     v = d['v'][i0:i1+1]
     dist = np.concatenate([[0], np.cumsum(0.5*(v[1:] + v[:-1])/3.6 * np.diff(t))])
     return dict(t=t, frac=dist/max(dist[-1], 1e-9), dist=dist, v=v,
                 ax=d['ax'][i0:i1+1], ay=d['ay'][i0:i1+1],
+                lat=d['lat'][i0:i1+1], lon=d['lon'][i0:i1+1],
                 time=float(t[-1]), length=float(dist[-1]))
 
 

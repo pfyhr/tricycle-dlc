@@ -78,7 +78,7 @@ def min_curvature_line(x, y, psi, kappa_c, ds, w_max, alpha=5e-6, smooth=3.0):
 
 
 def apply_driver_margin(x, y, psi, ds, w, w_max, vRef, margin=0.4, k=1.4,
-                        ay_budget=None, smooth=4.0, asym=True, bite=0.0, kHi=0.0):
+                        ay_budget=None, smooth=8.0, asym=True, bite=0.0, kHi=0.0):
     """Pull a racing line in from the corridor edge where the driver needs slack.
 
     The preview driver overshoots the line under LATERAL LOAD - through corners,

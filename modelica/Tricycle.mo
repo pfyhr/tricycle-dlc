@@ -658,6 +658,8 @@ table and overrides <code>sLap</code>/<code>u0</code> per track.</p></html>"));
       parameter String fileName = "build/track.txt"
         "Track table file: columns s [m], kappa [1/m], vRef [m/s], axFF [m/s2]";
       parameter Modelica.Units.SI.Velocity u0 = 30 "Initial (rolling-start) speed";
+      parameter Modelica.Units.SI.Length n0 = 0 "Initial lateral offset (start on the racing line: n0 = n_ref(0))";
+      parameter Modelica.Units.SI.Angle dpsi0 = 0 "Initial heading error (psi_ref(0))";
       // chassis (identical defaults to PlanarTricycle)
       parameter Modelica.Units.SI.Mass m = 1650 "Vehicle mass";
       parameter Modelica.Units.SI.Inertia Izz = 2700 "Yaw moment of inertia";
@@ -673,6 +675,9 @@ table and overrides <code>sLap</code>/<code>u0</code> per track.</p></html>"));
       parameter Modelica.Units.SI.Length Larm = 0.11 "Steering-arm length";
       parameter Modelica.Units.SI.Time tauSteer = 0.10
         "Steer actuation lag (driver arm + linkage), road-wheel level (quick-handed club driver)";
+      parameter Boolean relaxOn = false
+        "Tyre relaxation: false matches the JS port (no slip-angle lag), true restores the sigma/u relaxation"
+        annotation (Evaluate=true);
       // powertrain / resistances
       parameter Modelica.Units.SI.Power Pmax = 150e3 "Peak drive power at the rear wheel";
       parameter Real kBf(min=0, max=1) = 0.65 "Front share of the brake force";
@@ -705,8 +710,8 @@ table and overrides <code>sLap</code>/<code>u0</code> per track.</p></html>"));
 
       // track-coordinate states
       Modelica.Units.SI.Position s(start=0, fixed=true) "Distance along centerline";
-      Modelica.Units.SI.Length n(start=0, fixed=true) "Lateral offset, left of centerline";
-      Modelica.Units.SI.Angle dpsi(start=0, fixed=true) "Heading error to centerline";
+      Modelica.Units.SI.Length n(start=n0, fixed=true) "Lateral offset, left of centerline";
+      Modelica.Units.SI.Angle dpsi(start=dpsi0, fixed=true) "Heading error to centerline";
       Modelica.Units.SI.Velocity u(start=u0, fixed=true) "Forward speed (state)";
       Modelica.Units.SI.Velocity vy(start=0, fixed=true) "Lateral velocity at CG";
       Modelica.Units.SI.AngularVelocity r(start=0, fixed=true) "Yaw rate";
@@ -770,10 +775,20 @@ table and overrides <code>sLap</code>/<code>u0</code> per track.</p></html>"));
       FzFL = Fz0F - dFz - dFzX/2;
       FzFR = Fz0F + dFz - dFzX/2;
       FzR  = Fz0R + dFzX;
-      // brush tires at relaxation-lagged slip angles
-      (tireF.sigmaRel/uG)*der(aLagFL) + aLagFL = aFL;
-      (tireF.sigmaRel/uG)*der(aLagFR) + aLagFR = aFR;
-      (tireR.sigmaRel/uG)*der(aLagR)  + aLagR  = aR;
+      // brush tires at (optionally) relaxation-lagged slip angles. relaxOn = false by
+      // default: the track plant is the reference for the JavaScript port, which
+      // carries the steering-actuator lag but no tyre relaxation - the extra loop
+      // pole otherwise lowers the driver's stability margin below the JS tuning.
+      // (The DLC study's PlanarTricycle keeps its relaxation untouched.)
+      if relaxOn then
+        (tireF.sigmaRel/uG)*der(aLagFL) + aLagFL = aFL;
+        (tireF.sigmaRel/uG)*der(aLagFR) + aLagFR = aFR;
+        (tireR.sigmaRel/uG)*der(aLagR)  + aLagR  = aR;
+      else
+        aLagFL = aFL;
+        aLagFR = aFR;
+        aLagR  = aR;
+      end if;
       (FyFL, MzFL) = brushForces(aLagFL, FzFL, tireF);
       (FyFR, MzFR) = brushForces(aLagFR, FzFR, tireF);
       (FyR,  MzR)  = brushForces(aLagR,  FzR,  tireR);
@@ -849,12 +864,28 @@ first-order road-wheel lag.</p></html>"));
       parameter Modelica.Units.SI.Length xLA0 = 5.0 "Lookahead distance at rest";
       parameter Modelica.Units.SI.Time TLA = 0.25
         "Lookahead time: the path error is projected xLA = xLA0 + TLA*vx ahead. The speed-growing lookahead gives the feedback its phase lead, so a single fixed gain KLA stays stable to the limit of handling without gain-scheduling (Kapania & Gerdes 2015)";
-      parameter Real KLA(unit="rad/m") = 0.18
+      parameter Real KLA(unit="rad/m") = 0.10
         "Steer per meter of lookahead path error e_la = (n - n_ref) + xLA*(dpsi - psi_ref). Club-driver authority: firm enough to hold the committed minimum-curvature line without weaving";
       parameter Real Kr(unit="rad.s/rad") = 0.6
         "Damping on the yaw-rate error r - kappa_line*vx (weave damping; only acts on transients since it is zero in steady cornering)";
       parameter Modelica.Units.SI.Angle dMax = 0.35 "Smooth steer clamp";
       parameter Modelica.Units.SI.Velocity uPrevMin = 5 "Preview distance floor";
+      // ---- parameters shared with the JavaScript port (webgui_template.html) --------
+      parameter Real KMUL = 1.7 "Lookahead feedback gain multiplier";
+      parameter Modelica.Units.SI.Velocity uLAcap = 38
+        "Cap on the speed used for the lookahead distance (bounded preview)";
+      parameter Modelica.Units.SI.Velocity uKnee = 43
+        "Feedback gain knee: full authority below, rolls off above (fast hands do not work at 200 km/h; prevents the straight-line steering limit cycle)";
+      parameter Modelica.Units.SI.Velocity uWid = 15 "Width of the gain knee";
+      parameter Real vHiMarg = 0.08
+        "Speed margin where the steering gain has rolled off (slow hands need slack)";
+      parameter Real brkTrig = 0.40
+        "Late-brake onset: commit once the kinematic need reaches brkTrig*mu*g (x gHi)";
+      parameter Real brkMul = 1.25 "Brake this much harder than kinematically needed";
+      parameter Real mu = 0.95 "Tyre friction (pedal friction-circle shares)";
+      final parameter Modelica.Units.SI.Acceleration gG = 9.80665;
+      final parameter Modelica.Units.SI.Length dTap[18] = {8+6*i for i in 0:17}
+        "Far braking-horizon stations (mirrors the JS scan d = 8:6:up*2.2+10)";
 
       Modelica.Blocks.Interfaces.RealInput s(unit="m") "Distance along centerline"
         annotation (Placement(transformation(extent={{-120,70},{-100,90}})));
@@ -893,12 +924,39 @@ first-order road-wheel lag.</p></html>"));
       Modelica.Blocks.Tables.CombiTable1Ds speedT(
         tableOnFile=true, tableName="track", fileName=fileName, columns={3},
         smoothness=Modelica.Blocks.Types.Smoothness.ContinuousDerivative);
+      Modelica.Blocks.Tables.CombiTable1Ds farT[18](
+        each tableOnFile=true, each tableName="track", each fileName=fileName,
+        each columns={3},
+        each smoothness=Modelica.Blocks.Types.Smoothness.ContinuousDerivative)
+        "Far braking horizon: vRef at the fixed scan stations ahead";
+      Real up "Preview speed floor";
+      Real gHi "High-speed feedback rolloff (gain knee)";
+      Real vSc "High-speed reference-speed margin";
+      Real aNeed[18] "Kinematic deceleration needed at each horizon station";
+      Real aFar "Worst (most negative) horizon deceleration need";
+      Real latK "Planned lateral friction share";
+      Real latR "Measured lateral friction share";
+      Real latT "Throttle gate share";
+      Real trig "Late-brake commit threshold";
+      Real w0 "Commit band position";
+      Real w "Smoothstep commitment";
+      Real axPrev "Preview (reference-tracking) acceleration request";
+      Real ax1 "Acceleration request after brake commit / throttle share";
     equation
-      dPrev = noEvent(max(vx, uPrevMin))*TpV;
-      xLA = xLA0 + TLA*noEvent(max(vx, uPrevMin));
+      up = noEvent(max(vx, uPrevMin));
+      dPrev = up*TpV;
+      gHi = 1/(1 + (noEvent(max(0, up - uKnee))/uWid)^2);
+      vSc = 1 - vHiMarg*(1 - gHi);
+      xLA = xLA0 + TLA*noEvent(min(up, uLAcap));
       lineT.u = s;
-      ffT.u = s + noEvent(max(vx, uPrevMin))*TpFF;
+      ffT.u = s + up*TpFF;
       speedT.u = s + dPrev;
+      for i in 1:18 loop
+        farT[i].u = s + dTap[i];
+        aNeed[i] = noEvent(if dTap[i] <= 2.2*up + 10 and farT[i].y[1]*vSc < vx
+                           then ((farT[i].y[1]*vSc)^2 - vx^2)/(2*dTap[i]) else 0);
+      end for;
+      aFar = min(aNeed);
       nRef = lineT.y[1];
       psiRef = lineT.y[2];
       kapNow = lineT.y[3];
@@ -907,19 +965,32 @@ first-order road-wheel lag.</p></html>"));
       vRefPrev = speedT.y[1];
       // lookahead path error (Kapania & Gerdes 2015): the lateral error e = n - n_ref plus
       // its heading-driven growth over the lookahead xLA = xLA0 + TLA*vx. The speed-growing
-      // lookahead is what gives this single-gain feedback its phase lead, so KLA holds the
-      // aggressive optimal line to the limit without the gain-scheduling the old offset
-      // feedback needed to avoid weaving.
+      // (capped) lookahead gives the feedback its phase lead; the gain knee gHi rolls the
+      // authority off at very high speed (the straight-line limit-cycle fix, backported
+      // from the JavaScript driver where it was developed against the live sim).
       eLA = (n - nRef) + xLA*(dpsi - psiRef);
-      // steer = kinematic line-curvature feedforward + the OCP line's dynamic (sideslip)
-      // steer feedforward deltaFF (0 for the geometric lines) - lookahead-error feedback -
-      // yaw-rate damping about the line's curvature. n_ref = psi_ref = deltaFF = 0,
-      // kappa_line = kappa_c recovers centerline following exactly.
       dCmd = dMax*tanh(((Lwb + Kus*vx^2)*kapLine + deltaFF
-                        - KLA*eLA - Kr*(r - kapNow*vx))/dMax);
-      // constant-acceleration law to meet the previewed reference: self-correcting
-      // (equals the profile's own feedforward when exactly on the profile)
-      axCmd = (vRefPrev^2 - vx^2)/(2*dPrev);
+                        - gHi*KMUL*KLA*eLA - Kr*(r - kapNow*vx))/dMax);
+      // longitudinal channel, identical to the JS port: preview reference tracking, a far
+      // braking horizon acting as a LATE-HARD ONSET TRIGGER (smooth commit band, brake
+      // brkMul harder than needed, trail off with the planned lateral share), a throttle
+      // friction-circle gate, and hold-speed-to-the-braking-point before the commitment.
+      axPrev = ((vRefPrev*vSc)^2 - vx^2)/(2*dPrev);
+      latK = noEvent(min(1, abs(kapNow)*vx^2/(mu*gG)));
+      latR = noEvent(min(1, abs(r)*vx/(mu*gG)));
+      latT = noEvent(max(latK, latR));
+      trig = brkTrig*mu*gG*gHi;
+      w0 = noEvent(min(1, max(0, (-aFar - 0.75*trig)/(0.25*trig))));
+      w = w0*w0*(3 - 2*w0);
+      ax1 = noEvent(
+        if aFar < axPrev then
+          (if w > 0 then min(axPrev, w*(1 + (brkMul - 1)*gHi)*aFar
+                                     *sqrt(max(0, 1 - latK^2)))
+           else axPrev)
+        else (if axPrev > 0 then axPrev*sqrt(max(0, 1 - latT^2)) else axPrev));
+      axCmd = noEvent(
+        if ax1 < (-mu*gG)*w and ax1 < 0 and latK < 0.5
+        then ax1*(1 - gHi) + (-mu*gG)*w*gHi else ax1);
       annotation (
         Icon(coordinateSystem(preserveAspectRatio=false), graphics={
           Rectangle(extent={{-100,100},{100,-100}}, lineColor={0,0,0},

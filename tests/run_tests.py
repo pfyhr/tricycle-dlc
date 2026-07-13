@@ -201,7 +201,7 @@ for key, lmin, lmax in TRACK_CASES:
     rf = os.path.join(TMP, f'{key}_lap.csv')
     run_mos(
         'loadModel(Modelica); loadFile("Tricycle.mo");\n'
-        f'simulate(Tricycle.Examples.TrackLap, stopTime=900, numberOfIntervals=9000, '
+        f'simulate(Tricycle.Examples.TrackLap, stopTime=900, method="rungekutta", numberOfIntervals=150000, '
         f'outputFormat="csv", variableFilter="time|s|n|vKmh|vRefKmh|ayG|axG|FtieL|FtieR", '
         f'fileNamePrefix="build/{key}_test", '
         f'simflags="-override sLap={LTRK:.1f},u0={vRef[0]:.2f} -r={rf}"); getErrorString();')
